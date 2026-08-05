@@ -4,7 +4,7 @@ pipeline {
     stages {
         stage('Clone Git Repo') {
             steps {
-                git branch: 'main', url: 'https://github.com/Pawandubey11/SkillSwap.git'
+                git branch: 'main', url: 'https://github.com/Pawandubey11/Skill_Swap2.git'
             }
         }
 
