@@ -6,68 +6,92 @@ import morgan from "morgan";
 import jwt from "jsonwebtoken";
 import fs from "fs";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import dotenv from "dotenv";
+dotenv.config();
 
-const JWT_SECRET = process.env.JWT_SECRET || "skillswap-super-secret-key-12345";
+import pool from "./src/lib/db.js";
 
-interface User {
-  id: string;
-  username: string;
-  passwordHash: string;
-}
-
-let users: User[] = [];
-
-interface Skill {
-  id: string;
-  authorId: string;
-  name: string;
-  offer: string;
-  category: string;
-  want: string;
-  bio: string;
-  createdAt: number;
-}
-
-// In-memory "database"
-let skills: any[] = [];
-try {
-  const data = fs.readFileSync(
-    path.join(process.cwd(), "data", "courses.json"),
-    "utf8",
-  );
-  skills = JSON.parse(data);
-} catch (e) {
-  console.log("No initial courses data found.", e);
-}
-
-// Auth middleware
-const authenticate = (
-  req: express.Request,
-  res: express.Response,
-  next: express.NextFunction,
-) => {
-  const token = req.headers.authorization?.split(" ")[1];
-  if (!token) return res.status(401).json({ error: "Unauthorized" });
-  try {
-    const payload = jwt.verify(token, JWT_SECRET) as {
-      id: string;
-      username: string;
-    };
-    (req as any).user = payload;
-    next();
-  } catch (err) {
-    res.status(401).json({ error: "Invalid token" });
-  }
-};
+import trafficLogger from "./src/middleware/trafficLogger.js";
 
 async function startServer() {
+  try {
+    const conn = await pool.getConnection();
+
+    console.log("✅ MySQL Connected Successfully");
+
+    conn.release();
+  } catch (err) {
+    console.error("❌ MySQL Connection Failed");
+
+    console.error(err);
+
+    process.exit(1);
+  }
+
   const app = express();
+
   const PORT = Number(process.env.PORT) || 3000;
 
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = path.dirname(__filename);
+
+  const JWT_SECRET =
+    process.env.JWT_SECRET || "skillswap-super-secret-key-12345";
+
+  interface User {
+    id: string;
+    username: string;
+    passwordHash: string;
+  }
+
+  let users: User[] = [];
+
+  interface Skill {
+    id: string;
+    authorId: string;
+    name: string;
+    offer: string;
+    category: string;
+    want: string;
+    bio: string;
+    createdAt: number;
+  }
+
+  // In-memory "database"
+  let skills: any[] = [];
+  try {
+    const data = fs.readFileSync(
+      path.join(process.cwd(), "data", "courses.json"),
+      "utf8",
+    );
+    skills = JSON.parse(data);
+  } catch (e) {
+    console.log("No initial courses data found.", e);
+  }
+
+  // Auth middleware
+  const authenticate = (
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction,
+  ) => {
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const payload = jwt.verify(token, JWT_SECRET) as {
+        id: string;
+        username: string;
+      };
+      (req as any).user = payload;
+      next();
+    } catch (err) {
+      res.status(401).json({ error: "Invalid token" });
+    }
+  };
+
   app.use(express.json());
-  app.use(morgan("dev")); // Logging middleware
+  app.use(morgan("dev"));
+  app.use(trafficLogger);
 
   // API Routes
   app.post("/api/register", (req, res) => {
