@@ -1,6 +1,3 @@
-# ==========================
-# Stage 1 - Build Frontend
-# ==========================
 FROM node:22-alpine AS builder
 
 WORKDIR /app
@@ -12,10 +9,8 @@ COPY . .
 
 RUN npm run build
 
+# ----------------------------
 
-# ==========================
-# Stage 2 - Production
-# ==========================
 FROM node:22-alpine
 
 WORKDIR /app
@@ -25,18 +20,17 @@ ENV NODE_ENV=production
 COPY package*.json ./
 RUN npm ci --omit=dev
 
-# Frontend build
+# frontend build
 COPY --from=builder /app/dist ./dist
 
-# Backend files
+# backend
 COPY --from=builder /app/server.ts ./server.ts
+
+# copy backend source
 COPY --from=builder /app/src ./src
 
-# Data folder (courses.json)
+# data folder
 COPY --from=builder /app/data ./data
-
-# Optional (good practice)
-COPY --from=builder /app/.env.example ./.env.example
 
 EXPOSE 3000
 
