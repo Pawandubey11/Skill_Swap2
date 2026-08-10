@@ -3,13 +3,6 @@ pipeline {
 
     stages {
 
-        stage('Clone Git Repo') {
-            steps {
-                git branch: 'main',
-                    url: 'https://github.com/Pawandubey11/Skill_Swap2.git'
-            }
-        }
-
         stage('Build Docker Image') {
             steps {
                 sh '''
@@ -28,6 +21,20 @@ pipeline {
                       -p 3000:3000 \
                       --env-file .env \
                       my-node-app:latest
+                '''
+            }
+        }
+
+        stage('Health Check') {
+            steps {
+                sh '''
+                    echo "Waiting for application..."
+
+                    sleep 5
+
+                    curl --fail http://localhost:3000
+
+                    echo "Application is healthy"
                 '''
             }
         }
