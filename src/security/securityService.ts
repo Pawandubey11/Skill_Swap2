@@ -1,3 +1,4 @@
+import pool from "../lib/db.js";
 import { extractFeatures } from "./featureExtractor.js";
 import { detectAnomalies } from "./anomalyDetector.js";
 import { calculateRisk } from "./riskScorer.js";
@@ -17,6 +18,25 @@ export async function runSecurityAnalysis() {
     const risks = calculateRisk(anomalies);
 
     for (const result of risks) {
+      // Save risk information into MySQL
+      await pool.execute(
+        `
+        UPDATE traffic_logs
+        SET
+          risk_score = ?,
+          risk_level = ?,
+          risk_reasons = ?
+        WHERE ip_address = ?
+          AND timestamp >= NOW() - INTERVAL 5 MINUTE
+        `,
+        [
+          result.risk_score,
+          result.risk_level,
+          result.reasons.join(", "),
+          result.ip_address,
+        ]
+      );
+
       console.log({
         ip_address: result.ip_address,
         request_count: result.request_count,
