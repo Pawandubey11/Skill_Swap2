@@ -43,20 +43,27 @@ export async function detectAnomalies(
       suspicious,
     });
 
+    // Save suspicious status and anomaly score in MySQL
     await pool.execute(
       `
       UPDATE traffic_logs
-      SET is_suspicious = ?
+      SET
+        is_suspicious = ?,
+        anomaly_score = ?
       WHERE ip_address = ?
         AND timestamp >= NOW() - INTERVAL 5 MINUTE
       `,
-      [suspicious ? 1 : 0, row.ip_address]
+      [
+        suspicious ? 1 : 0,
+        score,
+        row.ip_address,
+      ]
     );
 
     console.log(
       `Database updated: ${row.ip_address} -> ${
         suspicious ? "SUSPICIOUS" : "NORMAL"
-      }`
+      } | Anomaly Score: ${score}`
     );
   }
 
