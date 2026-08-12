@@ -1,12 +1,13 @@
-import pool from "../lib/db.js";
 import { extractFeatures } from "./featureExtractor.js";
 import { detectAnomalies } from "./anomalyDetector.js";
 import { calculateRisk } from "./riskScorer.js";
+import { generateSecurityResponse } from "./responseEngine.js";
 
 export async function runSecurityAnalysis() {
   console.log("\n=== AUTOMATIC SECURITY ANALYSIS ===");
 
   try {
+    // Step 1: Extract traffic features
     const features = await extractFeatures();
 
     if (features.length === 0) {
@@ -14,29 +15,17 @@ export async function runSecurityAnalysis() {
       return;
     }
 
+    // Step 2: Detect anomalies
     const anomalies = await detectAnomalies(features);
+
+    // Step 3: Calculate risk
     const risks = calculateRisk(anomalies);
 
-    for (const result of risks) {
-      // Save risk information into MySQL
-      await pool.execute(
-        `
-        UPDATE traffic_logs
-        SET
-          risk_score = ?,
-          risk_level = ?,
-          risk_reasons = ?
-        WHERE ip_address = ?
-          AND timestamp >= NOW() - INTERVAL 5 MINUTE
-        `,
-        [
-          result.risk_score,
-          result.risk_level,
-          result.reasons.join(", "),
-          result.ip_address,
-        ]
-      );
+    // Step 4: Generate security response
+    const responses = generateSecurityResponse(risks);
 
+    // Step 5: Display complete security analysis
+    for (const result of risks) {
       console.log({
         ip_address: result.ip_address,
         request_count: result.request_count,
@@ -47,6 +36,17 @@ export async function runSecurityAnalysis() {
         risk_score: result.risk_score,
         risk_level: result.risk_level,
         reasons: result.reasons,
+      });
+    }
+
+    // Step 6: Display response actions
+    console.log("\n=== SECURITY RESPONSE ===");
+
+    for (const response of responses) {
+      console.log({
+        ip_address: response.ip_address,
+        action: response.action,
+        message: response.message,
       });
     }
 
