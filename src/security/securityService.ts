@@ -2,6 +2,7 @@ import { extractFeatures } from "./featureExtractor.js";
 import { detectAnomalies } from "./anomalyDetector.js";
 import { calculateRisk } from "./riskScorer.js";
 import { generateSecurityResponse } from "./responseEngine.js";
+import { enforceSecurityResponse } from "./enforcementEngine.js";
 
 export async function runSecurityAnalysis() {
   console.log("\n=== AUTOMATIC SECURITY ANALYSIS ===");
@@ -35,13 +36,10 @@ export async function runSecurityAnalysis() {
 
     // ============================================================
     // STEP 3 — CALCULATE RISK
-    // IMPORTANT:
-    // calculateRisk() returns a Promise
     // ============================================================
 
     const risks = await calculateRisk(anomalies);
 
-    // Safety check
     if (!Array.isArray(risks)) {
       console.error("❌ Risk scorer did not return an array.");
       console.error("Received:", risks);
@@ -56,14 +54,15 @@ export async function runSecurityAnalysis() {
 
     const responses = await generateSecurityResponse(risks);
 
-    // Safety check
     if (!Array.isArray(responses)) {
       console.error("❌ Response engine did not return an array.");
       console.error("Received:", responses);
       return;
     }
 
-    console.log(`Security responses generated: ${responses.length}`);
+    console.log(
+      `Security responses generated: ${responses.length}`,
+    );
 
     // ============================================================
     // STEP 5 — DISPLAY RISK ANALYSIS
@@ -102,7 +101,32 @@ export async function runSecurityAnalysis() {
     }
 
     // ============================================================
-    // STEP 7 — SUMMARY
+    // STEP 7 — ENFORCEMENT
+    // ============================================================
+
+    console.log("\n=== ENFORCEMENT ===");
+
+    const enforcementResults = [];
+
+    for (const response of responses) {
+      const enforcement = enforceSecurityResponse(response);
+
+      enforcementResults.push(enforcement);
+
+      console.log({
+        ip_address: enforcement.ip_address,
+        action: enforcement.action,
+        status: enforcement.status,
+        message: enforcement.message,
+      });
+    }
+
+    console.log(
+      `Enforcement results generated: ${enforcementResults.length}`,
+    );
+
+    // ============================================================
+    // STEP 8 — RESPONSE SUMMARY
     // ============================================================
 
     console.log("\n=== RESPONSE SUMMARY ===");
@@ -132,7 +156,12 @@ export async function runSecurityAnalysis() {
     });
 
     console.log("\n===============================\n");
+
+    console.log("✅ Automatic security analysis completed.");
   } catch (error) {
-    console.error("❌ Automatic security analysis error:", error);
+    console.error(
+      "❌ Automatic security analysis error:",
+      error,
+    );
   }
 }
