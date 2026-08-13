@@ -15,9 +15,12 @@ import trafficLogger from "./src/middleware/trafficLogger.js";
 // Automatic security analysis
 import { runSecurityAnalysis } from "./src/security/securityService.js";
 
+// Phase 2 — Enforcement
+import { isIPBlocked } from "./src/security/enforcementEngine.js";
+
 async function startServer() {
   // ============================================================
-  // MYSQL CONNECTION CHECK
+  // MYSQL CONNECTION
   // ============================================================
 
   try {
@@ -41,10 +44,11 @@ async function startServer() {
   const __dirname = path.dirname(__filename);
 
   const JWT_SECRET =
-    process.env.JWT_SECRET || "skillswap-super-secret-key-12345";
+    process.env.JWT_SECRET ||
+    "skillswap-super-secret-key-12345";
 
   // ============================================================
-  // USER TYPE
+  // USER INTERFACE
   // ============================================================
 
   interface User {
@@ -56,7 +60,7 @@ async function startServer() {
   let users: User[] = [];
 
   // ============================================================
-  // SKILL TYPE
+  // SKILL INTERFACE
   // ============================================================
 
   interface Skill {
@@ -74,7 +78,7 @@ async function startServer() {
   // IN-MEMORY DATABASE
   // ============================================================
 
-  let skills: any[] = [];
+  let skills: Skill[] = [];
 
   try {
     const data = fs.readFileSync(
@@ -96,7 +100,8 @@ async function startServer() {
     res: express.Response,
     next: express.NextFunction,
   ) => {
-    const token = req.headers.authorization?.split(" ")[1];
+    const token =
+      req.headers.authorization?.split(" ")[1];
 
     if (!token) {
       return res.status(401).json({
@@ -105,7 +110,10 @@ async function startServer() {
     }
 
     try {
-      const payload = jwt.verify(token, JWT_SECRET) as {
+      const payload = jwt.verify(
+        token,
+        JWT_SECRET,
+      ) as {
         id: string;
         username: string;
       };
@@ -128,19 +136,67 @@ async function startServer() {
 
   app.use(morgan("dev"));
 
-  // Traffic logging
+  // ============================================================
+  // TRAFFIC LOGGER
+  // ============================================================
+
   app.use(trafficLogger);
+
+  // ============================================================
+  // PHASE 2 — IP ENFORCEMENT MIDDLEWARE
+  // ============================================================
+
+  app.use((req, res, next) => {
+    const forwardedFor =
+      req.headers["x-forwarded-for"];
+
+    let ip: string;
+
+    if (typeof forwardedFor === "string") {
+      ip = forwardedFor
+        .split(",")[0]
+        .trim();
+    } else {
+      ip =
+        req.ip ||
+        req.socket.remoteAddress ||
+        "unknown";
+    }
+
+    // Remove IPv6-mapped IPv4 prefix
+    if (ip.startsWith("::ffff:")) {
+      ip = ip.substring(7);
+    }
+
+    // Check whether IP is currently blocked
+    if (isIPBlocked(ip)) {
+      console.log(
+        `🚫 BLOCKED REQUEST: ${ip} ${req.method} ${req.path}`,
+      );
+
+      return res.status(403).json({
+        error: "Access denied",
+        message:
+          "Your IP address has been temporarily blocked.",
+      });
+    }
+
+    next();
+  });
 
   // ============================================================
   // API ROUTES
   // ============================================================
 
-  // ------------------------------------------------------------
+  // ============================================================
   // REGISTER
-  // ------------------------------------------------------------
+  // ============================================================
 
   app.post("/api/register", (req, res) => {
-    const { username, password } = req.body;
+    const {
+      username,
+      password,
+    } = req.body;
 
     if (!username || !password) {
       return res.status(400).json({
@@ -148,15 +204,23 @@ async function startServer() {
       });
     }
 
-    if (users.find((u) => u.username === username)) {
+    if (
+      users.find(
+        (u) => u.username === username,
+      )
+    ) {
       return res.status(400).json({
         error: "Username taken",
       });
     }
 
     const newUser: User = {
-      id: Math.random().toString(36).substring(2, 9),
+      id: Math.random()
+        .toString(36)
+        .substring(2, 9),
+
       username,
+
       passwordHash: password,
     };
 
@@ -175,6 +239,7 @@ async function startServer() {
 
     res.status(201).json({
       token,
+
       user: {
         id: newUser.id,
         username: newUser.username,
@@ -182,15 +247,20 @@ async function startServer() {
     });
   });
 
-  // ------------------------------------------------------------
+  // ============================================================
   // LOGIN
-  // ------------------------------------------------------------
+  // ============================================================
 
   app.post("/api/login", (req, res) => {
-    const { username, password } = req.body;
+    const {
+      username,
+      password,
+    } = req.body;
 
     const user = users.find(
-      (u) => u.username === username && u.passwordHash === password,
+      (u) =>
+        u.username === username &&
+        u.passwordHash === password,
     );
 
     if (!user) {
@@ -212,6 +282,7 @@ async function startServer() {
 
     res.json({
       token,
+
       user: {
         id: user.id,
         username: user.username,
@@ -219,190 +290,241 @@ async function startServer() {
     });
   });
 
-  // ------------------------------------------------------------
+  // ============================================================
   // GET ALL SKILLS
-  // ------------------------------------------------------------
+  // ============================================================
 
   app.get("/api/skills", (req, res) => {
-    const summarySkills = skills.map((s) => ({
-      id: s.id,
-      authorId: s.authorId,
-      name: s.name,
-      offer: s.offer,
-      category: s.category,
-      want: s.want,
-      bio: s.bio,
-      createdAt: s.createdAt,
-      authorName: s.authorName,
-    }));
+    const summarySkills = skills.map(
+      (s) => ({
+        id: s.id,
+        authorId: s.authorId,
+        name: s.name,
+        offer: s.offer,
+        category: s.category,
+        want: s.want,
+        bio: s.bio,
+        createdAt: s.createdAt,
+        authorName: (s as any).authorName,
+      }),
+    );
 
     res.json(summarySkills);
   });
 
-  // ------------------------------------------------------------
+  // ============================================================
   // GET SINGLE SKILL
-  // ------------------------------------------------------------
+  // ============================================================
 
-  app.get("/api/skills/:id", (req, res) => {
-    const skill = skills.find((s) => s.id === req.params.id);
+  app.get(
+    "/api/skills/:id",
+    (req, res) => {
+      const skill = skills.find(
+        (s) =>
+          s.id === req.params.id,
+      );
 
-    if (!skill) {
-      return res.status(404).json({
-        error: "Skill not found",
-      });
-    }
+      if (!skill) {
+        return res.status(404).json({
+          error: "Skill not found",
+        });
+      }
 
-    res.json(skill);
-  });
+      res.json(skill);
+    },
+  );
 
-  // ------------------------------------------------------------
+  // ============================================================
   // CREATE SKILL
-  // ------------------------------------------------------------
+  // ============================================================
 
-  app.post("/api/skills", authenticate, (req, res) => {
-    const { name, offer, category, want, bio } = req.body;
+  app.post(
+    "/api/skills",
+    authenticate,
+    (req, res) => {
+      const {
+        name,
+        offer,
+        category,
+        want,
+        bio,
+      } = req.body;
 
-    const user = (req as any).user;
+      const user = (req as any).user;
 
-    if (!name || !offer || !category || !want) {
-      return res.status(400).json({
-        error: "Missing required fields",
-      });
-    }
+      if (
+        !name ||
+        !offer ||
+        !category ||
+        !want
+      ) {
+        return res.status(400).json({
+          error:
+            "Missing required fields",
+        });
+      }
 
-    const newSkill: Skill = {
-      id: Math.random().toString(36).substring(2, 9),
-      authorId: user.id,
-      name,
-      offer,
-      category,
-      want,
-      bio:
-        bio ||
-        `${name} is offering ${offer} in exchange for ${want}.`,
-      createdAt: Date.now(),
-    };
+      const newSkill: Skill = {
+        id: Math.random()
+          .toString(36)
+          .substring(2, 9),
 
-    skills.unshift(newSkill);
+        authorId: user.id,
 
-    res.status(201).json(newSkill);
-  });
+        name,
 
-  // ------------------------------------------------------------
+        offer,
+
+        category,
+
+        want,
+
+        bio:
+          bio ||
+          `${name} is offering ${offer} in exchange for ${want}.`,
+
+        createdAt: Date.now(),
+      };
+
+      skills.unshift(newSkill);
+
+      res.status(201).json(
+        newSkill,
+      );
+    },
+  );
+
+  // ============================================================
   // DELETE SKILL
-  // ------------------------------------------------------------
+  // ============================================================
 
-  app.delete("/api/skills/:id", authenticate, (req, res) => {
-    const { id } = req.params;
+  app.delete(
+    "/api/skills/:id",
+    authenticate,
+    (req, res) => {
+      const { id } = req.params;
 
-    const user = (req as any).user;
+      const user = (req as any).user;
 
-    const skillIndex = skills.findIndex(
-      (s) => s.id === id,
-    );
+      const skillIndex =
+        skills.findIndex(
+          (s) => s.id === id,
+        );
 
-    if (skillIndex === -1) {
-      return res.status(404).json({
-        error: "Skill not found",
-      });
-    }
+      if (skillIndex === -1) {
+        return res.status(404).json({
+          error: "Skill not found",
+        });
+      }
 
-    if (skills[skillIndex].authorId !== user.id) {
-      return res.status(403).json({
-        error: "Forbidden: You can only delete your own skills",
-      });
-    }
+      if (
+        skills[skillIndex]
+          .authorId !== user.id
+      ) {
+        return res.status(403).json({
+          error:
+            "Forbidden: You can only delete your own skills",
+        });
+      }
 
-    skills.splice(skillIndex, 1);
+      skills.splice(
+        skillIndex,
+        1,
+      );
 
-    res.status(204).send();
-  });
+      res.status(204).send();
+    },
+  );
 
   // ============================================================
   // VITE / PRODUCTION
   // ============================================================
 
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: {
-        middlewareMode: true,
-      },
-      appType: "spa",
-    });
+  if (
+    process.env.NODE_ENV !==
+    "production"
+  ) {
+    const vite =
+      await createViteServer({
+        server: {
+          middlewareMode: true,
+        },
 
-    app.use(vite.middlewares);
+        appType: "spa",
+      });
+
+    app.use(
+      vite.middlewares,
+    );
   } else {
-    const distPath = path.join(process.cwd(), "dist");
+    const distPath =
+      path.join(
+        process.cwd(),
+        "dist",
+      );
 
-    app.use(express.static(distPath));
+    app.use(
+      express.static(distPath),
+    );
 
-    app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
-    });
+    app.get(
+      "*",
+      (req, res) => {
+        res.sendFile(
+          path.join(
+            distPath,
+            "index.html",
+          ),
+        );
+      },
+    );
   }
 
   // ============================================================
   // START SERVER
   // ============================================================
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-
-    console.log("🔐 Automatic security analysis enabled");
-
-    // ==========================================================
-    // FIRST SECURITY ANALYSIS
-    // ==========================================================
-
-    console.log("\n🔐 Running initial security analysis...");
-
-    runSecurityAnalysis().catch((error) => {
-      console.error(
-        "Initial security analysis failed:",
-        error,
-      );
-    });
-
-    // ==========================================================
-    // AUTOMATIC SECURITY ANALYSIS
-    // ==========================================================
-    //
-    // TEST MODE:
-    // Run every 30 seconds.
-    //
-    // After testing is complete, change:
-    //
-    // 30 * 1000
-    //
-    // back to:
-    //
-    // 5 * 60 * 1000
-    //
-    // ==========================================================
-
-    setInterval(async () => {
+  app.listen(
+    PORT,
+    "0.0.0.0",
+    () => {
       console.log(
-        "\n🔐 Running automatic security analysis...",
+        `Server running on http://localhost:${PORT}`,
       );
 
-      try {
-        await runSecurityAnalysis();
+      console.log(
+        "🔐 Automatic security analysis enabled",
+      );
 
-        console.log(
-          "✅ Automatic security analysis completed.",
-        );
-      } catch (error) {
-        console.error(
-          "❌ Automatic security analysis failed:",
-          error,
-        );
-      }
-    }, 30 * 1000);
-  });
+      // ========================================================
+      // INITIAL SECURITY ANALYSIS
+      // ========================================================
+
+      console.log(
+        "\n🔐 Running initial security analysis...",
+      );
+
+      runSecurityAnalysis();
+
+      // ========================================================
+      // AUTOMATIC SECURITY ANALYSIS
+      // ========================================================
+      //
+      // Run every 5 minutes
+      //
+
+      setInterval(
+        async () => {
+          console.log(
+            "\n🔐 Running automatic security analysis...",
+          );
+
+          await runSecurityAnalysis();
+        },
+        5 * 60 * 1000,
+      );
+    },
+  );
 }
-
-// ============================================================
-// START APPLICATION
-// ============================================================
 
 startServer();
