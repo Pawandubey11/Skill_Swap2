@@ -7,31 +7,68 @@ export async function runSecurityAnalysis() {
   console.log("\n=== AUTOMATIC SECURITY ANALYSIS ===");
 
   try {
-    // Step 1: Extract traffic features
+    // ============================================================
+    // STEP 1 — EXTRACT TRAFFIC FEATURES
+    // ============================================================
+
     const features = await extractFeatures();
 
-    if (features.length === 0) {
+    if (!features || features.length === 0) {
       console.log("No traffic found in the last 5 minutes.");
       return;
     }
 
-    // Step 2: Detect anomalies
+    console.log(`Features extracted: ${features.length}`);
+
+    // ============================================================
+    // STEP 2 — DETECT ANOMALIES
+    // ============================================================
+
     const anomalies = await detectAnomalies(features);
 
-    // Step 3: Calculate risk
-    const risks = calculateRisk(anomalies);
+    if (!anomalies || anomalies.length === 0) {
+      console.log("No anomalies detected.");
+      return;
+    }
+
+    console.log(`Anomalies analyzed: ${anomalies.length}`);
+
+    // ============================================================
+    // STEP 3 — CALCULATE RISK
+    // IMPORTANT:
+    // calculateRisk() returns a Promise
+    // ============================================================
+
+    const risks = await calculateRisk(anomalies);
 
     // Safety check
     if (!Array.isArray(risks)) {
-      console.error("Risk scorer did not return an array.");
+      console.error("❌ Risk scorer did not return an array.");
       console.error("Received:", risks);
       return;
     }
 
-    // Step 4: Generate security response
-    const responses = generateSecurityResponse(risks);
+    console.log(`Risk results generated: ${risks.length}`);
 
-    // Step 5: Display risk analysis
+    // ============================================================
+    // STEP 4 — GENERATE SECURITY RESPONSE
+    // ============================================================
+
+    const responses = await generateSecurityResponse(risks);
+
+    // Safety check
+    if (!Array.isArray(responses)) {
+      console.error("❌ Response engine did not return an array.");
+      console.error("Received:", responses);
+      return;
+    }
+
+    console.log(`Security responses generated: ${responses.length}`);
+
+    // ============================================================
+    // STEP 5 — DISPLAY RISK ANALYSIS
+    // ============================================================
+
     console.log("\n=== RISK ANALYSIS ===");
 
     for (const result of risks) {
@@ -48,7 +85,10 @@ export async function runSecurityAnalysis() {
       });
     }
 
-    // Step 6: Display security response
+    // ============================================================
+    // STEP 6 — DISPLAY SECURITY RESPONSE
+    // ============================================================
+
     console.log("\n=== SECURITY RESPONSE ===");
 
     for (const response of responses) {
@@ -61,8 +101,38 @@ export async function runSecurityAnalysis() {
       });
     }
 
+    // ============================================================
+    // STEP 7 — SUMMARY
+    // ============================================================
+
+    console.log("\n=== RESPONSE SUMMARY ===");
+
+    const blockCount = responses.filter(
+      (response) => response.action === "BLOCK",
+    ).length;
+
+    const alertCount = responses.filter(
+      (response) => response.action === "ALERT",
+    ).length;
+
+    const monitorCount = responses.filter(
+      (response) => response.action === "MONITOR",
+    ).length;
+
+    const normalCount = responses.filter(
+      (response) => response.action === "NORMAL",
+    ).length;
+
+    console.log({
+      total_ips: responses.length,
+      blocked: blockCount,
+      alerts: alertCount,
+      monitored: monitorCount,
+      normal: normalCount,
+    });
+
     console.log("\n===============================\n");
   } catch (error) {
-    console.error("Automatic security analysis error:", error);
+    console.error("❌ Automatic security analysis error:", error);
   }
 }
