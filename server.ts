@@ -154,36 +154,12 @@ async function startServer() {
   // ============================================================
   // TRAFFIC LOGGER
   // ============================================================
-  //
-  // IMPORTANT:
-  // Traffic logger comes BEFORE IP enforcement.
-  //
-  // This allows blocked requests to also be recorded in
-  // traffic_logs for security analysis.
-  //
 
   app.use(trafficLogger);
 
   // ============================================================
   // PHASE 2 — IP ENFORCEMENT MIDDLEWARE
   // ============================================================
-  //
-  // Check whether the requesting IP is blocked.
-  //
-  // Flow:
-  //
-  // Request
-  //    ↓
-  // Traffic Logger
-  //    ↓
-  // IP Enforcement
-  //    ↓
-  // Is IP blocked?
-  //
-  // YES → 403
-  //
-  // NO → continue to API
-  //
 
   app.use((req, res, next) => {
     const forwardedFor =
@@ -191,44 +167,23 @@ async function startServer() {
 
     let ip: string;
 
-    // ----------------------------------------------------------
-    // Get IP from reverse proxy header
-    // ----------------------------------------------------------
-
     if (typeof forwardedFor === "string") {
       ip = forwardedFor
         .split(",")[0]
         .trim();
     } else {
-      // --------------------------------------------------------
-      // Get IP directly from socket
-      // --------------------------------------------------------
-
       ip =
         req.ip ||
         req.socket.remoteAddress ||
         "unknown";
     }
 
-    // ----------------------------------------------------------
     // Remove IPv6 mapped IPv4 prefix
-    // Example:
-    //
-    // ::ffff:172.17.0.1
-    //
-    // becomes:
-    //
-    // 172.17.0.1
-    // ----------------------------------------------------------
-
     if (ip.startsWith("::ffff:")) {
       ip = ip.substring(7);
     }
 
-    // ----------------------------------------------------------
-    // Check IP against enforcement engine
-    // ----------------------------------------------------------
-
+    // Check whether IP is currently blocked
     if (isIPBlocked(ip)) {
       console.log(
         `🚫 BLOCKED REQUEST: ${ip} ${req.method} ${req.path}`,
@@ -241,20 +196,226 @@ async function startServer() {
       });
     }
 
-    // ----------------------------------------------------------
-    // IP is not blocked
-    // ----------------------------------------------------------
-
     next();
   });
 
   // ============================================================
+  // PHASE 3 — SECURITY EVENT API
+  // ============================================================
+
+  // ============================================================
+  // GET ALL SECURITY EVENTS
+  // ============================================================
+
+  app.get(
+    "/api/security-events",
+    async (req, res) => {
+      try {
+        const [rows] = await pool.query(`
+          SELECT
+            id,
+            ip_address,
+            event_type,
+            severity,
+            risk_score,
+            anomaly_score,
+            action,
+            status,
+            risk_reasons,
+            message,
+            created_at
+          FROM security_events
+          ORDER BY created_at DESC
+          LIMIT 100
+        `);
+
+        return res.json(rows);
+      } catch (error) {
+        console.error(
+          "❌ Failed to fetch security events:",
+          error,
+        );
+
+        return res.status(500).json({
+          error: "Failed to fetch security events",
+        });
+      }
+    },
+  );
+
+  // ============================================================
+  // GET SINGLE SECURITY EVENT
+  // ============================================================
+
+  app.get(
+    "/api/security-events/:id",
+    async (req, res) => {
+      try {
+        const [rows]: any = await pool.query(
+          `
+          SELECT
+            id,
+            ip_address,
+            event_type,
+            severity,
+            risk_score,
+            anomaly_score,
+            action,
+            status,
+            risk_reasons,
+            message,
+            created_at
+          FROM security_events
+          WHERE id = ?
+          `,
+          [req.params.id],
+        );
+
+        if (rows.length === 0) {
+          return res.status(404).json({
+            error: "Security event not found",
+          });
+        }
+
+        return res.json(rows[0]);
+      } catch (error) {
+        console.error(
+          "❌ Failed to fetch security event:",
+          error,
+        );
+
+        return res.status(500).json({
+          error: "Failed to fetch security event",
+        });
+      }
+    },
+  );
+
+  // ============================================================
+  // SECURITY EVENT SUMMARY
+  // ============================================================
+
+  app.get(
+    "/api/security-events/summary",
+    async (req, res) => {
+      try {
+        const [rows]: any = await pool.query(`
+          SELECT
+            COUNT(*) AS total_events,
+
+            SUM(
+              severity = 'CRITICAL'
+            ) AS critical_events,
+
+            SUM(
+              severity = 'HIGH'
+            ) AS high_events,
+
+            SUM(
+              severity = 'MEDIUM'
+            ) AS medium_events,
+
+            SUM(
+              severity = 'LOW'
+            ) AS low_events,
+
+            SUM(
+              action = 'BLOCK'
+            ) AS blocked_events,
+
+            SUM(
+              action = 'ALERT'
+            ) AS alert_events,
+
+            SUM(
+              action = 'MONITOR'
+            ) AS monitored_events
+
+          FROM security_events
+        `);
+
+        return res.json(rows[0]);
+      } catch (error) {
+        console.error(
+          "❌ Failed to fetch security summary:",
+          error,
+        );
+
+        return res.status(500).json({
+          error: "Failed to fetch security summary",
+        });
+      }
+    },
+  );
+
+  // ============================================================
+  // UPDATE SECURITY EVENT STATUS
+  // ============================================================
+
+  app.patch(
+    "/api/security-events/:id/status",
+    async (req, res) => {
+      try {
+        const { status } = req.body;
+
+        const allowedStatuses = [
+          "OPEN",
+          "INVESTIGATING",
+          "RESOLVED",
+        ];
+
+        if (
+          !allowedStatuses.includes(status)
+        ) {
+          return res.status(400).json({
+            error: "Invalid status",
+            allowedStatuses,
+          });
+        }
+
+        const [result]: any =
+          await pool.query(
+            `
+            UPDATE security_events
+            SET status = ?
+            WHERE id = ?
+            `,
+            [
+              status,
+              req.params.id,
+            ],
+          );
+
+        if (result.affectedRows === 0) {
+          return res.status(404).json({
+            error:
+              "Security event not found",
+          });
+        }
+
+        return res.json({
+          message:
+            "Security event status updated",
+          id: req.params.id,
+          status,
+        });
+      } catch (error) {
+        console.error(
+          "❌ Failed to update security event:",
+          error,
+        );
+
+        return res.status(500).json({
+          error:
+            "Failed to update security event",
+        });
+      }
+    },
+  );
+
+  // ============================================================
   // SECURITY ANALYSIS MANUAL ENDPOINT
   // ============================================================
-  //
-  // Useful for testing Phase 1 + Phase 2 without waiting
-  // for the automatic 5-minute interval.
-  //
 
   app.post(
     "/api/security/analyze",
@@ -304,7 +465,6 @@ async function startServer() {
         });
       }
 
-      // Check existing user
       if (
         users.find(
           (u) => u.username === username,
@@ -315,7 +475,6 @@ async function startServer() {
         });
       }
 
-      // Create user
       const newUser: User = {
         id: Math.random()
           .toString(36)
@@ -328,7 +487,6 @@ async function startServer() {
 
       users.push(newUser);
 
-      // Create JWT
       const token = jwt.sign(
         {
           id: newUser.id,
@@ -375,7 +533,6 @@ async function startServer() {
         });
       }
 
-      // Create JWT
       const token = jwt.sign(
         {
           id: user.id,
@@ -409,28 +566,13 @@ async function startServer() {
         skills.map(
           (s) => ({
             id: s.id,
-
-            authorId:
-              s.authorId,
-
-            name:
-              s.name,
-
-            offer:
-              s.offer,
-
-            category:
-              s.category,
-
-            want:
-              s.want,
-
-            bio:
-              s.bio,
-
-            createdAt:
-              s.createdAt,
-
+            authorId: s.authorId,
+            name: s.name,
+            offer: s.offer,
+            category: s.category,
+            want: s.want,
+            bio: s.bio,
+            createdAt: s.createdAt,
             authorName:
               (s as any).authorName,
           }),
@@ -484,7 +626,6 @@ async function startServer() {
       const user =
         (req as any).user;
 
-      // Validate input
       if (
         !name ||
         !offer ||
@@ -497,7 +638,6 @@ async function startServer() {
         });
       }
 
-      // Create skill
       const newSkill: Skill = {
         id: Math.random()
           .toString(36)
@@ -522,7 +662,6 @@ async function startServer() {
           Date.now(),
       };
 
-      // Add to memory
       skills.unshift(
         newSkill,
       );
@@ -560,7 +699,6 @@ async function startServer() {
         });
       }
 
-      // Only owner can delete
       if (
         skills[skillIndex]
           .authorId !== user.id
@@ -613,14 +751,12 @@ async function startServer() {
         "dist",
       );
 
-    // Serve static frontend
     app.use(
       express.static(
         distPath,
       ),
     );
 
-    // SPA fallback
     app.get(
       "*",
       (req, res) => {
