@@ -3,6 +3,7 @@ import { detectAnomalies } from "./anomalyDetector.js";
 import { calculateRisk } from "./riskScorer.js";
 import { generateSecurityResponse } from "./responseEngine.js";
 import { enforceSecurityResponse } from "./enforcementEngine.js";
+import { saveSecurityEvent } from "./securityEventService.js";
 
 export async function runSecurityAnalysis() {
   console.log("\n=== AUTOMATIC SECURITY ANALYSIS ===");
@@ -55,7 +56,9 @@ export async function runSecurityAnalysis() {
     const responses = await generateSecurityResponse(risks);
 
     if (!Array.isArray(responses)) {
-      console.error("❌ Response engine did not return an array.");
+      console.error(
+        "❌ Response engine did not return an array.",
+      );
       console.error("Received:", responses);
       return;
     }
@@ -101,15 +104,22 @@ export async function runSecurityAnalysis() {
     }
 
     // ============================================================
-    // STEP 7 — ENFORCEMENT
+    // STEP 7 — ENFORCEMENT + SECURITY EVENT STORAGE
     // ============================================================
 
     console.log("\n=== ENFORCEMENT ===");
 
     const enforcementResults = [];
 
-    for (const response of responses) {
-      const enforcement = enforceSecurityResponse(response);
+    for (let i = 0; i < responses.length; i++) {
+      const response = responses[i];
+
+      // ----------------------------------------------------------
+      // ENFORCEMENT
+      // ----------------------------------------------------------
+
+      const enforcement =
+        enforceSecurityResponse(response);
 
       enforcementResults.push(enforcement);
 
@@ -119,6 +129,50 @@ export async function runSecurityAnalysis() {
         status: enforcement.status,
         message: enforcement.message,
       });
+
+      // ----------------------------------------------------------
+      // FIND CORRESPONDING RISK RESULT
+      // ----------------------------------------------------------
+
+      const risk = risks[i];
+
+      // ----------------------------------------------------------
+      // SAVE SECURITY EVENT TO MYSQL
+      // ----------------------------------------------------------
+
+      try {
+        await saveSecurityEvent({
+          ip_address: response.ip_address,
+
+          event_type: risk?.suspicious
+            ? "Suspicious Traffic"
+            : "Security Risk",
+
+          severity: response.risk_level,
+
+          risk_score: response.risk_score,
+
+          anomaly_score: risk?.anomaly_score,
+
+          action: enforcement.action,
+
+          status: enforcement.status,
+
+          risk_reasons: risk?.reasons || [],
+
+          message: enforcement.message,
+        });
+
+        console.log(
+          `💾 Security event saved: ${response.ip_address}`,
+        );
+      } catch (eventError) {
+        console.error(
+          `❌ Failed to save security event for ${response.ip_address}`,
+        );
+
+        console.error(eventError);
+      }
     }
 
     console.log(
@@ -157,7 +211,9 @@ export async function runSecurityAnalysis() {
 
     console.log("\n===============================\n");
 
-    console.log("✅ Automatic security analysis completed.");
+    console.log(
+      "✅ Automatic security analysis completed.",
+    );
   } catch (error) {
     console.error(
       "❌ Automatic security analysis error:",
