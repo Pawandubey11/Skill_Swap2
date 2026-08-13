@@ -1,3 +1,4 @@
+import pool from "../lib/db.js";
 import { extractFeatures } from "./featureExtractor.js";
 import { detectAnomalies } from "./anomalyDetector.js";
 import { calculateRisk } from "./riskScorer.js";
@@ -21,16 +22,48 @@ export async function runSecurityAnalysis() {
     // Step 3: Calculate risk
     const risks = calculateRisk(anomalies);
 
-    // Step 4: Generate security response
+    // Step 4: Save risk analysis results into MySQL
+    for (const result of risks) {
+      await pool.execute(
+        `
+        UPDATE traffic_logs
+        SET
+          risk_score = ?,
+          risk_level = ?,
+          risk_reasons = ?
+        WHERE ip_address = ?
+          AND timestamp >= NOW() - INTERVAL 5 MINUTE
+        `,
+        [
+          result.risk_score,
+          result.risk_level,
+          result.reasons.length > 0
+            ? result.reasons.join(", ")
+            : null,
+          result.ip_address,
+        ]
+      );
+
+      console.log(
+        `Risk updated: ${result.ip_address} -> ${result.risk_level} | Risk Score: ${result.risk_score}`
+      );
+    }
+
+    // Step 5: Generate security response
     const responses = generateSecurityResponse(risks);
 
-    // Step 5: Display complete security analysis
+    // Step 6: Display complete security analysis
+    console.log("\n=== SECURITY ANALYSIS RESULTS ===");
+
     for (const result of risks) {
       console.log({
         ip_address: result.ip_address,
         request_count: result.request_count,
         unique_endpoints: result.unique_endpoints,
+        unique_methods: result.unique_methods,
         error_count: result.error_count,
+        avg_response_time: result.avg_response_time,
+        max_response_time: result.max_response_time,
         anomaly_score: result.anomaly_score,
         suspicious: result.suspicious,
         risk_score: result.risk_score,
@@ -39,7 +72,7 @@ export async function runSecurityAnalysis() {
       });
     }
 
-    // Step 6: Display response actions
+    // Step 7: Display response actions
     console.log("\n=== SECURITY RESPONSE ===");
 
     for (const response of responses) {
