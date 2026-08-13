@@ -185,24 +185,29 @@ export async function runSecurityAnalysis() {
 
     console.log("\n=== RESPONSE SUMMARY ===");
 
-    const blockCount = responses.filter(
-      (response) => response.action === "BLOCK",
+    // IMPORTANT:
+    // Count actions from enforcementResults because
+    // enforcementEngine converts BLOCK_IP / BLOCK_IP_AND_ALERT
+    // into the final action "BLOCK".
+
+    const blockCount = enforcementResults.filter(
+      (result) => result.action === "BLOCK",
     ).length;
 
-    const alertCount = responses.filter(
-      (response) => response.action === "ALERT",
+    const alertCount = enforcementResults.filter(
+      (result) => result.action === "ALERT",
     ).length;
 
-    const monitorCount = responses.filter(
-      (response) => response.action === "MONITOR",
+    const monitorCount = enforcementResults.filter(
+      (result) => result.action === "MONITOR",
     ).length;
 
-    const normalCount = responses.filter(
-      (response) => response.action === "NORMAL",
+    const normalCount = enforcementResults.filter(
+      (result) => result.action === "NORMAL",
     ).length;
 
     console.log({
-      total_ips: responses.length,
+      total_ips: enforcementResults.length,
       blocked: blockCount,
       alerts: alertCount,
       monitored: monitorCount,
