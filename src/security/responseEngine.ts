@@ -1,9 +1,21 @@
-import type { RiskResult } from "./riskScorer.js";
+export interface RiskResult {
+  ip_address: string;
+  request_count: number;
+  unique_endpoints: number;
+  error_count: number;
+  anomaly_score: number;
+  suspicious: boolean;
+  risk_score: number;
+  risk_level: string;
+  reasons: string[];
+}
 
 export interface SecurityResponse {
   ip_address: string;
-  action: "ALLOW" | "MONITOR" | "ALERT" | "BLOCK";
+  action: string;
   message: string;
+  risk_score: number;
+  risk_level: string;
 }
 
 export function generateSecurityResponse(
@@ -11,33 +23,47 @@ export function generateSecurityResponse(
 ): SecurityResponse[] {
   const responses: SecurityResponse[] = [];
 
-  for (const result of risks) {
-    let action: SecurityResponse["action"];
-    let message: string;
+  for (const risk of risks) {
+    let action = "MONITOR";
+    let message = "Traffic is normal. Continue monitoring.";
 
-    if (result.risk_level === "CRITICAL") {
-      action = "BLOCK";
-      message = `Critical security threat detected from ${result.ip_address}`;
-    } else if (result.risk_level === "HIGH") {
-      action = "ALERT";
-      message = `High-risk traffic detected from ${result.ip_address}`;
-    } else if (result.risk_level === "MEDIUM") {
-      action = "MONITOR";
-      message = `Medium-risk traffic detected from ${result.ip_address}`;
-    } else {
-      action = "ALLOW";
-      message = `Normal traffic from ${result.ip_address}`;
+    switch (risk.risk_level) {
+      case "LOW":
+        action = "MONITOR";
+        message = "Low risk traffic detected. No action required.";
+        break;
+
+      case "MEDIUM":
+        action = "ALERT";
+        message =
+          "Medium risk traffic detected. Security monitoring is required.";
+        break;
+
+      case "HIGH":
+        action = "BLOCK_IP";
+        message =
+          "High risk traffic detected. IP should be blocked and investigated.";
+        break;
+
+      case "CRITICAL":
+        action = "BLOCK_IP_AND_ALERT";
+        message =
+          "Critical security threat detected. IP should be blocked immediately and security team alerted.";
+        break;
+
+      default:
+        action = "MONITOR";
+        message = "Unknown risk level. Continue monitoring.";
+        break;
     }
 
     responses.push({
-      ip_address: result.ip_address,
+      ip_address: risk.ip_address,
       action,
       message,
+      risk_score: risk.risk_score,
+      risk_level: risk.risk_level,
     });
-
-    console.log(
-      `🛡️ Security Response: ${result.ip_address} -> ${action}`,
-    );
   }
 
   return responses;
