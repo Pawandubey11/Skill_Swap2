@@ -27,36 +27,66 @@ import {
 // HELPER — GET CLIENT IP
 // ============================================================
 
-function getClientIP(
-  req: express.Request,
-): string {
-  const forwardedFor =
-    req.headers["x-forwarded-for"];
+function getClientIP(req: express.Request): string {
+  const forwardedFor = req.headers["x-forwarded-for"];
 
   let ip: string;
 
-  // If request came through a proxy/load balancer
+  // ------------------------------------------------------------
+  // AWS ALB / NGINX / PROXY
+  // ------------------------------------------------------------
+
   if (typeof forwardedFor === "string") {
-    ip = forwardedFor
-      .split(",")[0]
-      .trim();
-  } else if (Array.isArray(forwardedFor)) {
+    ip = forwardedFor.split(",")[0].trim();
+  }
+
+  // ------------------------------------------------------------
+  // Express can sometimes provide an array
+  // ------------------------------------------------------------
+
+  else if (Array.isArray(forwardedFor)) {
     ip = forwardedFor[0]?.trim() || "";
-  } else {
+  }
+
+  // ------------------------------------------------------------
+  // Direct connection
+  // ------------------------------------------------------------
+
+  else {
     ip =
       req.ip ||
       req.socket.remoteAddress ||
       "unknown";
   }
 
-  // Remove IPv6 mapped IPv4 prefix
+  // ------------------------------------------------------------
+  // Normalize IPv4-mapped IPv6
+  // Example:
+  // ::ffff:172.17.0.1
+  // becomes:
+  // 172.17.0.1
+  // ------------------------------------------------------------
+
   if (ip.startsWith("::ffff:")) {
     ip = ip.substring(7);
   }
 
+  // ------------------------------------------------------------
   // Normalize localhost IPv6
+  // ------------------------------------------------------------
+
   if (ip === "::1") {
     ip = "127.0.0.1";
+  }
+
+  // ------------------------------------------------------------
+  // Remove spaces
+  // ------------------------------------------------------------
+
+  ip = ip.trim();
+
+  if (!ip) {
+    ip = "unknown";
   }
 
   return ip;
@@ -73,6 +103,7 @@ async function startServer() {
   // ============================================================
 
   try {
+
     const conn = await pool.getConnection();
 
     console.log(
@@ -125,7 +156,7 @@ async function startServer() {
     passwordHash: string;
   }
 
-  let users: User[] = [];
+  const users: User[] = [];
 
   // ============================================================
   // SKILL INTERFACE
@@ -166,12 +197,13 @@ async function startServer() {
       `✅ Loaded ${skills.length} skills`,
     );
 
-  } catch (e) {
+  } catch (error) {
 
     console.log(
-      "No initial courses data found.",
-      e,
+      "⚠️ No initial courses data found.",
     );
+
+    console.error(error);
   }
 
   // ============================================================
@@ -184,9 +216,11 @@ async function startServer() {
     next: express.NextFunction,
   ) => {
 
+    const authorization =
+      req.headers.authorization;
+
     const token =
-      req.headers.authorization
-        ?.split(" ")[1];
+      authorization?.split(" ")[1];
 
     if (!token) {
 
@@ -206,12 +240,11 @@ async function startServer() {
           username: string;
         };
 
-      (req as any).user =
-        payload;
+      (req as any).user = payload;
 
       next();
 
-    } catch (err) {
+    } catch (error) {
 
       return res.status(401).json({
         error: "Invalid token",
@@ -227,7 +260,10 @@ async function startServer() {
     express.json(),
   );
 
-  // HTTP request logging
+  // ============================================================
+  // MORGAN HTTP LOGGING
+  // ============================================================
+
   app.use(
     morgan("dev"),
   );
@@ -237,20 +273,32 @@ async function startServer() {
   // ============================================================
   //
   // IMPORTANT:
-  // This middleware runs BEFORE trafficLogger.
   //
-  // If an IP is blocked:
-  //     request stops here
-  //     trafficLogger does NOT process it
-  //     API returns HTTP 403
+  // This middleware must execute BEFORE trafficLogger.
+  //
+  // Flow:
+  //
+  // Request
+  //    ↓
+  // Get IP
+  //    ↓
+  // Check blocked list
+  //    ↓
+  // BLOCKED → 403
+  //    ↓
+  // ALLOWED
+  //    ↓
+  // trafficLogger
+  //    ↓
+  // Route
   //
   // ============================================================
 
   app.use(
     (
-      req,
-      res,
-      next,
+      req: express.Request,
+      res: express.Response,
+      next: express.NextFunction,
     ) => {
 
       const ip =
@@ -261,29 +309,36 @@ async function startServer() {
       );
 
       // --------------------------------------------------------
-      // CHECK BLOCK LIST
+      // CHECK IP BLOCK LIST
       // --------------------------------------------------------
 
-      if (isIPBlocked(ip)) {
+      const blocked =
+        isIPBlocked(ip);
+
+      if (blocked) {
 
         console.log(
           `🚫 BLOCKED REQUEST: ${ip} ${req.method} ${req.path}`,
         );
 
         return res.status(403).json({
-          error: "Access denied",
+
+          error:
+            "Access denied",
 
           message:
             "Your IP address has been temporarily blocked.",
 
-          ip_address: ip,
+          ip_address:
+            ip,
 
-          status: "BLOCKED",
+          status:
+            "BLOCKED",
         });
       }
 
       // --------------------------------------------------------
-      // IP IS ALLOWED
+      // IP ALLOWED
       // --------------------------------------------------------
 
       next();
@@ -299,7 +354,7 @@ async function startServer() {
   );
 
   // ============================================================
-  // PHASE 3 — SECURITY EVENT API
+  // PHASE 3 — SECURITY EVENTS
   // ============================================================
 
   // ============================================================
@@ -329,8 +384,11 @@ async function startServer() {
               risk_reasons,
               message,
               created_at
+
             FROM security_events
+
             ORDER BY created_at DESC
+
             LIMIT 100
           `);
 
@@ -381,7 +439,9 @@ async function startServer() {
               risk_reasons,
               message,
               created_at
+
             FROM security_events
+
             WHERE id = ?
             `,
             [
@@ -434,6 +494,7 @@ async function startServer() {
         const [rows]: any =
           await pool.query(`
             SELECT
+
               COUNT(*) AS total_events,
 
               SUM(
@@ -489,10 +550,6 @@ async function startServer() {
   // ============================================================
   // GET CURRENTLY BLOCKED IPS
   // ============================================================
-  //
-  // Useful for testing Phase 2 IP blocking.
-  //
-  // ============================================================
 
   app.get(
     "/api/security/blocked-ips",
@@ -507,11 +564,13 @@ async function startServer() {
           getBlockedIPs();
 
         return res.json({
+
           total_blocked:
             blockedIPs.length,
 
           blocked_ips:
             blockedIPs,
+
         });
 
       } catch (error) {
@@ -559,10 +618,12 @@ async function startServer() {
         ) {
 
           return res.status(400).json({
+
             error:
               "Invalid status",
 
             allowedStatuses,
+
           });
         }
 
@@ -570,7 +631,9 @@ async function startServer() {
           await pool.query(
             `
             UPDATE security_events
+
             SET status = ?
+
             WHERE id = ?
             `,
             [
@@ -590,6 +653,7 @@ async function startServer() {
         }
 
         return res.json({
+
           message:
             "Security event status updated",
 
@@ -597,6 +661,7 @@ async function startServer() {
             req.params.id,
 
           status,
+
         });
 
       } catch (error) {
@@ -615,7 +680,7 @@ async function startServer() {
   );
 
   // ============================================================
-  // SECURITY ANALYSIS MANUAL ENDPOINT
+  // MANUAL SECURITY ANALYSIS
   // ============================================================
 
   app.post(
@@ -634,10 +699,13 @@ async function startServer() {
         await runSecurityAnalysis();
 
         return res.json({
-          success: true,
+
+          success:
+            true,
 
           message:
             "Security analysis completed successfully",
+
         });
 
       } catch (error) {
@@ -648,10 +716,13 @@ async function startServer() {
         );
 
         return res.status(500).json({
-          success: false,
+
+          success:
+            false,
 
           error:
             "Security analysis failed",
+
         });
       }
     },
@@ -684,13 +755,14 @@ async function startServer() {
         });
       }
 
-      if (
+      const existingUser =
         users.find(
-          (u) =>
-            u.username ===
+          (user) =>
+            user.username ===
             username,
-        )
-      ) {
+        );
+
+      if (existingUser) {
 
         return res.status(400).json({
           error:
@@ -738,12 +810,15 @@ async function startServer() {
         token,
 
         user: {
+
           id:
             newUser.id,
 
           username:
             newUser.username,
+
         },
+
       });
     },
   );
@@ -804,12 +879,15 @@ async function startServer() {
         token,
 
         user: {
+
           id:
             user.id,
 
           username:
             user.username,
+
         },
+
       });
     },
   );
@@ -827,34 +905,36 @@ async function startServer() {
 
       const summarySkills =
         skills.map(
-          (s) => ({
+          (skill) => ({
+
             id:
-              s.id,
+              skill.id,
 
             authorId:
-              s.authorId,
+              skill.authorId,
 
             name:
-              s.name,
+              skill.name,
 
             offer:
-              s.offer,
+              skill.offer,
 
             category:
-              s.category,
+              skill.category,
 
             want:
-              s.want,
+              skill.want,
 
             bio:
-              s.bio,
+              skill.bio,
 
             createdAt:
-              s.createdAt,
+              skill.createdAt,
 
             authorName:
-              (s as any)
+              (skill as any)
                 .authorName,
+
           }),
         );
 
@@ -989,8 +1069,9 @@ async function startServer() {
 
       const skillIndex =
         skills.findIndex(
-          (s) =>
-            s.id === id,
+          (skill) =>
+            skill.id ===
+            id,
         );
 
       if (
@@ -1037,12 +1118,15 @@ async function startServer() {
       await createViteServer({
 
         server: {
+
           middlewareMode:
             true,
+
         },
 
         appType:
           "spa",
+
       });
 
     app.use(
