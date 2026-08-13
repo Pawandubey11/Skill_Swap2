@@ -1,3 +1,4 @@
+import pool from "../lib/db.js";
 import type { AnomalyResult } from "./anomalyDetector.js";
 
 export interface RiskResult extends AnomalyResult {
@@ -6,8 +7,12 @@ export interface RiskResult extends AnomalyResult {
   reasons: string[];
 }
 
-export function calculateRisk(results: AnomalyResult[]): RiskResult[] {
-  return results.map((row) => {
+export async function calculateRisk(
+  results: AnomalyResult[],
+): Promise<RiskResult[]> {
+  const riskResults: RiskResult[] = [];
+
+  for (const row of results) {
     let riskScore = 0;
     const reasons: string[] = [];
 
@@ -53,6 +58,7 @@ export function calculateRisk(results: AnomalyResult[]): RiskResult[] {
       reasons.push("Traffic marked as suspicious");
     }
 
+    // Maximum risk score = 100
     riskScore = Math.min(riskScore, 100);
 
     let riskLevel: string;
@@ -67,11 +73,38 @@ export function calculateRisk(results: AnomalyResult[]): RiskResult[] {
       riskLevel = "LOW";
     }
 
-    return {
+    const riskResult: RiskResult = {
       ...row,
       risk_score: riskScore,
       risk_level: riskLevel,
       reasons,
     };
-  });
+
+    riskResults.push(riskResult);
+
+    // Save risk analysis into MySQL
+    await pool.execute(
+      `
+      UPDATE traffic_logs
+      SET
+        risk_score = ?,
+        risk_level = ?,
+        risk_reasons = ?
+      WHERE ip_address = ?
+        AND timestamp >= NOW() - INTERVAL 5 MINUTE
+      `,
+      [
+        riskScore,
+        riskLevel,
+        JSON.stringify(reasons),
+        row.ip_address,
+      ],
+    );
+
+    console.log(
+      `Risk updated: ${row.ip_address} -> ${riskLevel} | Risk Score: ${riskScore}`,
+    );
+  }
+
+  return riskResults;
 }
