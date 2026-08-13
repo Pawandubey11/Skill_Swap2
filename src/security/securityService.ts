@@ -19,10 +19,20 @@ export async function runSecurityAnalysis() {
     // Step 2: Detect anomalies
     const anomalies = await detectAnomalies(features);
 
+    if (!Array.isArray(anomalies)) {
+      console.error("Anomaly detector did not return an array.");
+      return;
+    }
+
     // Step 3: Calculate risk
     const risks = calculateRisk(anomalies);
 
-    // Step 4: Save risk analysis results into MySQL
+    if (!Array.isArray(risks)) {
+      console.error("Risk scorer did not return an array.");
+      return;
+    }
+
+    // Step 4: Save risk information to MySQL
     for (const result of risks) {
       await pool.execute(
         `
@@ -37,9 +47,7 @@ export async function runSecurityAnalysis() {
         [
           result.risk_score,
           result.risk_level,
-          result.reasons.length > 0
-            ? result.reasons.join(", ")
-            : null,
+          JSON.stringify(result.reasons),
           result.ip_address,
         ]
       );
@@ -51,6 +59,11 @@ export async function runSecurityAnalysis() {
 
     // Step 5: Generate security response
     const responses = generateSecurityResponse(risks);
+
+    if (!Array.isArray(responses)) {
+      console.error("Security response engine did not return an array.");
+      return;
+    }
 
     // Step 6: Display complete security analysis
     console.log("\n=== SECURITY ANALYSIS RESULTS ===");
