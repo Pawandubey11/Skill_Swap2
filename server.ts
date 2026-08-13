@@ -16,7 +16,10 @@ import trafficLogger from "./src/middleware/trafficLogger.js";
 import { runSecurityAnalysis } from "./src/security/securityService.js";
 
 async function startServer() {
-  // MySQL connection check
+  // ============================================================
+  // MYSQL CONNECTION CHECK
+  // ============================================================
+
   try {
     const conn = await pool.getConnection();
 
@@ -40,6 +43,10 @@ async function startServer() {
   const JWT_SECRET =
     process.env.JWT_SECRET || "skillswap-super-secret-key-12345";
 
+  // ============================================================
+  // USER TYPE
+  // ============================================================
+
   interface User {
     id: string;
     username: string;
@@ -47,6 +54,10 @@ async function startServer() {
   }
 
   let users: User[] = [];
+
+  // ============================================================
+  // SKILL TYPE
+  // ============================================================
 
   interface Skill {
     id: string;
@@ -59,7 +70,10 @@ async function startServer() {
     createdAt: number;
   }
 
-  // In-memory "database"
+  // ============================================================
+  // IN-MEMORY DATABASE
+  // ============================================================
+
   let skills: any[] = [];
 
   try {
@@ -85,7 +99,9 @@ async function startServer() {
     const token = req.headers.authorization?.split(" ")[1];
 
     if (!token) {
-      return res.status(401).json({ error: "Unauthorized" });
+      return res.status(401).json({
+        error: "Unauthorized",
+      });
     }
 
     try {
@@ -98,7 +114,9 @@ async function startServer() {
 
       next();
     } catch (err) {
-      res.status(401).json({ error: "Invalid token" });
+      res.status(401).json({
+        error: "Invalid token",
+      });
     }
   };
 
@@ -117,7 +135,10 @@ async function startServer() {
   // API ROUTES
   // ============================================================
 
-  // Register
+  // ------------------------------------------------------------
+  // REGISTER
+  // ------------------------------------------------------------
+
   app.post("/api/register", (req, res) => {
     const { username, password } = req.body;
 
@@ -161,7 +182,10 @@ async function startServer() {
     });
   });
 
-  // Login
+  // ------------------------------------------------------------
+  // LOGIN
+  // ------------------------------------------------------------
+
   app.post("/api/login", (req, res) => {
     const { username, password } = req.body;
 
@@ -195,9 +219,11 @@ async function startServer() {
     });
   });
 
-  // Get all skills
+  // ------------------------------------------------------------
+  // GET ALL SKILLS
+  // ------------------------------------------------------------
+
   app.get("/api/skills", (req, res) => {
-    // Only return summary data to save bandwidth
     const summarySkills = skills.map((s) => ({
       id: s.id,
       authorId: s.authorId,
@@ -213,7 +239,10 @@ async function startServer() {
     res.json(summarySkills);
   });
 
-  // Get single skill
+  // ------------------------------------------------------------
+  // GET SINGLE SKILL
+  // ------------------------------------------------------------
+
   app.get("/api/skills/:id", (req, res) => {
     const skill = skills.find((s) => s.id === req.params.id);
 
@@ -226,7 +255,10 @@ async function startServer() {
     res.json(skill);
   });
 
-  // Create skill
+  // ------------------------------------------------------------
+  // CREATE SKILL
+  // ------------------------------------------------------------
+
   app.post("/api/skills", authenticate, (req, res) => {
     const { name, offer, category, want, bio } = req.body;
 
@@ -245,7 +277,9 @@ async function startServer() {
       offer,
       category,
       want,
-      bio: bio || `${name} is offering ${offer} in exchange for ${want}.`,
+      bio:
+        bio ||
+        `${name} is offering ${offer} in exchange for ${want}.`,
       createdAt: Date.now(),
     };
 
@@ -254,13 +288,18 @@ async function startServer() {
     res.status(201).json(newSkill);
   });
 
-  // Delete skill
+  // ------------------------------------------------------------
+  // DELETE SKILL
+  // ------------------------------------------------------------
+
   app.delete("/api/skills/:id", authenticate, (req, res) => {
     const { id } = req.params;
 
     const user = (req as any).user;
 
-    const skillIndex = skills.findIndex((s) => s.id === id);
+    const skillIndex = skills.findIndex(
+      (s) => s.id === id,
+    );
 
     if (skillIndex === -1) {
       return res.status(404).json({
@@ -312,20 +351,58 @@ async function startServer() {
     console.log("🔐 Automatic security analysis enabled");
 
     // ==========================================================
+    // FIRST SECURITY ANALYSIS
+    // ==========================================================
+
+    console.log("\n🔐 Running initial security analysis...");
+
+    runSecurityAnalysis().catch((error) => {
+      console.error(
+        "Initial security analysis failed:",
+        error,
+      );
+    });
+
+    // ==========================================================
     // AUTOMATIC SECURITY ANALYSIS
     // ==========================================================
     //
-    // Run once when the application starts
+    // TEST MODE:
+    // Run every 30 seconds.
     //
-    runSecurityAnalysis();
+    // After testing is complete, change:
+    //
+    // 30 * 1000
+    //
+    // back to:
+    //
+    // 5 * 60 * 1000
+    //
+    // ==========================================================
 
-    // Run every 5 minutes
     setInterval(async () => {
-      console.log("\n🔐 Running automatic security analysis...");
+      console.log(
+        "\n🔐 Running automatic security analysis...",
+      );
 
-      await runSecurityAnalysis();
-    }, 5 * 60 * 1000);
+      try {
+        await runSecurityAnalysis();
+
+        console.log(
+          "✅ Automatic security analysis completed.",
+        );
+      } catch (error) {
+        console.error(
+          "❌ Automatic security analysis failed:",
+          error,
+        );
+      }
+    }, 30 * 1000);
   });
 }
+
+// ============================================================
+// START APPLICATION
+// ============================================================
 
 startServer();
