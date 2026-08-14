@@ -1,236 +1,183 @@
 // ============================================================
-// SECURITY ENFORCEMENT ENGINE
+// ENFORCEMENT ENGINE
+// ============================================================
+//
+// Responsible for applying security actions:
+//
+// MONITOR
+// ALERT
+// BLOCK
+//
 // ============================================================
 
 import {
-  blockIP,
-  isIPBlocked,
-  getBlockedIPs,
   normalizeIP,
+  blockIP,
+  unblockIP,
+  isBlocked,
+  getBlockedIPs,
 } from "./blockManager.js";
 
 // ============================================================
-// ENFORCEMENT RESULT
+// SECURITY ACTION TYPES
 // ============================================================
 
-export interface EnforcementResult {
-
-  ip_address: string;
-
-  action: string;
-
-  status: string;
-
-  message: string;
-}
+export type SecurityAction =
+  | "MONITOR"
+  | "ALERT"
+  | "BLOCK";
 
 // ============================================================
-// ENFORCE SECURITY RESPONSE
+// BLOCK CONFIGURATION
 // ============================================================
 
-export function enforceSecurityResponse(
-  response: any,
-): EnforcementResult {
+const DEFAULT_BLOCK_DURATION =
+  15 * 60 * 1000;
 
-  const {
+// 15 minutes
 
-    ip_address,
+// ============================================================
+// APPLY SECURITY ACTION
+// ============================================================
 
-    risk_level,
-
-    risk_score,
-
-    action,
-
-    message,
-
-  } = response;
-
-  // ----------------------------------------------------------
-  // NORMALIZE IP
-  // ----------------------------------------------------------
+export function enforceSecurityAction(
+  ip: string,
+  action: SecurityAction,
+  reason: string = "Security violation",
+  durationMs: number = DEFAULT_BLOCK_DURATION,
+): void {
 
   const normalizedIP =
-    normalizeIP(
-      ip_address,
-    );
+    normalizeIP(ip);
 
   console.log(
-    "\n=== ENFORCEMENT ===",
-  );
-
-  console.log(
-    `IP: ${normalizedIP}`,
-  );
-
-  console.log(
-    `Risk Level: ${risk_level}`,
-  );
-
-  console.log(
-    `Risk Score: ${risk_score}`,
+    `🛡️ ENFORCEMENT: ${action} → ${normalizedIP}`,
   );
 
   // ==========================================================
-  // LOW RISK
+  // MONITOR
   // ==========================================================
 
   if (
-    risk_level ===
-    "LOW"
+    action === "MONITOR"
   ) {
 
     console.log(
-      `🟢 MONITOR: ${normalizedIP}`,
+      `👁️ MONITOR: ${normalizedIP}`,
     );
 
-    return {
-
-      ip_address:
-        normalizedIP,
-
-      action:
-        "MONITOR",
-
-      status:
-        "ALLOWED",
-
-      message:
-        "Traffic is being monitored normally.",
-    };
+    return;
   }
 
   // ==========================================================
-  // MEDIUM RISK
+  // ALERT
   // ==========================================================
 
   if (
-    risk_level ===
-    "MEDIUM"
+    action === "ALERT"
   ) {
 
     console.log(
-      `🟡 ALERT: ${normalizedIP}`,
+      `⚠️ ALERT: ${normalizedIP}`,
     );
-
-    return {
-
-      ip_address:
-        normalizedIP,
-
-      action:
-        "ALERT",
-
-      status:
-        "ALLOWED",
-
-      message:
-        "Medium risk detected. Traffic remains allowed but is being monitored.",
-    };
-  }
-
-  // ==========================================================
-  // HIGH RISK
-  // ==========================================================
-
-  if (
-    risk_level ===
-    "HIGH"
-  ) {
-
-    const entry =
-      blockIP(
-        normalizedIP,
-        `HIGH risk detected with score ${risk_score}`,
-      );
 
     console.log(
-      `🚫 HIGH RISK IP BLOCKED: ${normalizedIP}`,
+      `📝 Reason: ${reason}`,
     );
 
-    return {
-
-      ip_address:
-        normalizedIP,
-
-      action:
-        "BLOCK",
-
-      status:
-        "BLOCKED",
-
-      message:
-        "High risk traffic detected. IP temporarily blocked.",
-
-    };
+    return;
   }
 
   // ==========================================================
-  // CRITICAL RISK
+  // BLOCK
   // ==========================================================
 
   if (
-    risk_level ===
-    "CRITICAL"
+    action === "BLOCK"
   ) {
 
     blockIP(
       normalizedIP,
-      `CRITICAL risk detected with score ${risk_score}`,
+      durationMs,
+      reason,
     );
 
-    console.log(
-      `🚨 CRITICAL RISK IP BLOCKED: ${normalizedIP}`,
-    );
-
-    return {
-
-      ip_address:
-        normalizedIP,
-
-      action:
-        "BLOCK",
-
-      status:
-        "BLOCKED",
-
-      message:
-        "Critical risk detected. IP temporarily blocked.",
-    };
+    return;
   }
-
-  // ==========================================================
-  // FALLBACK
-  // ==========================================================
-
-  console.log(
-    `ℹ️ FALLBACK ACTION: ${normalizedIP}`,
-  );
-
-  return {
-
-    ip_address:
-      normalizedIP,
-
-    action:
-      action ||
-      "MONITOR",
-
-    status:
-      "ALLOWED",
-
-    message:
-      message ||
-      "Traffic allowed.",
-  };
 }
 
 // ============================================================
-// EXPORT BLOCK MANAGER FUNCTIONS
+// BLOCK IP
 // ============================================================
 
+export function enforceBlock(
+  ip: string,
+  reason: string = "Security violation",
+  durationMs: number = DEFAULT_BLOCK_DURATION,
+): void {
+
+  const normalizedIP =
+    normalizeIP(ip);
+
+  blockIP(
+    normalizedIP,
+    durationMs,
+    reason,
+  );
+}
+
+// ============================================================
+// UNBLOCK IP
+// ============================================================
+
+export function enforceUnblock(
+  ip: string,
+): boolean {
+
+  const normalizedIP =
+    normalizeIP(ip);
+
+  return unblockIP(
+    normalizedIP,
+  );
+}
+
+// ============================================================
+// CHECK BLOCK STATUS
+// ============================================================
+
+export function isIPBlocked(
+  ip: string,
+): boolean {
+
+  const normalizedIP =
+    normalizeIP(ip);
+
+  return isBlocked(
+    normalizedIP,
+  );
+}
+
+// ============================================================
+// GET BLOCKED IPS
+// ============================================================
+
+export function getBlockedIPsList() {
+
+  return getBlockedIPs();
+}
+
+// ============================================================
+// BACKWARD COMPATIBILITY
+// ============================================================
+//
+// Your server.ts currently imports:
+//
+// getBlockedIPs
+//
+// So export it directly.
+//
+
 export {
-  isIPBlocked,
   getBlockedIPs,
-  normalizeIP,
 };
