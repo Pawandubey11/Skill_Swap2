@@ -61,10 +61,8 @@ function getClientIP(req: express.Request): string {
 
   // ------------------------------------------------------------
   // Normalize IPv4-mapped IPv6
-  // Example:
   // ::ffff:172.17.0.1
-  // becomes:
-  // 172.17.0.1
+  // -> 172.17.0.1
   // ------------------------------------------------------------
 
   if (ip.startsWith("::ffff:")) {
@@ -103,21 +101,15 @@ async function startServer() {
   // ============================================================
 
   try {
-
     const conn = await pool.getConnection();
 
-    console.log(
-      "✅ MySQL Connected Successfully",
-    );
+    console.log("✅ MySQL Connected Successfully");
 
     conn.release();
 
   } catch (err) {
 
-    console.error(
-      "❌ MySQL Connection Failed",
-    );
-
+    console.error("❌ MySQL Connection Failed");
     console.error(err);
 
     process.exit(1);
@@ -137,6 +129,9 @@ async function startServer() {
 
   const __dirname =
     path.dirname(__filename);
+
+  // Prevent unused-variable issues
+  void __dirname;
 
   // ============================================================
   // JWT CONFIGURATION
@@ -171,6 +166,7 @@ async function startServer() {
     want: string;
     bio: string;
     createdAt: number;
+    authorName?: string;
   }
 
   // ============================================================
@@ -205,6 +201,22 @@ async function startServer() {
 
     console.error(error);
   }
+
+  // ============================================================
+  // EXPRESS MIDDLEWARE
+  // ============================================================
+
+  app.use(
+    express.json(),
+  );
+
+  // ============================================================
+  // MORGAN HTTP LOGGING
+  // ============================================================
+
+  app.use(
+    morgan("dev"),
+  );
 
   // ============================================================
   // AUTHENTICATION MIDDLEWARE
@@ -246,6 +258,11 @@ async function startServer() {
 
     } catch (error) {
 
+      console.error(
+        "JWT verification failed:",
+        error,
+      );
+
       return res.status(401).json({
         error: "Invalid token",
       });
@@ -253,45 +270,7 @@ async function startServer() {
   };
 
   // ============================================================
-  // EXPRESS MIDDLEWARE
-  // ============================================================
-
-  app.use(
-    express.json(),
-  );
-
-  // ============================================================
-  // MORGAN HTTP LOGGING
-  // ============================================================
-
-  app.use(
-    morgan("dev"),
-  );
-
-  // ============================================================
   // PHASE 2 — IP BLOCKING MIDDLEWARE
-  // ============================================================
-  //
-  // IMPORTANT:
-  //
-  // This middleware must execute BEFORE trafficLogger.
-  //
-  // Flow:
-  //
-  // Request
-  //    ↓
-  // Get IP
-  //    ↓
-  // Check blocked list
-  //    ↓
-  // BLOCKED → 403
-  //    ↓
-  // ALLOWED
-  //    ↓
-  // trafficLogger
-  //    ↓
-  // Route
-  //
   // ============================================================
 
   app.use(
@@ -312,34 +291,43 @@ async function startServer() {
       // CHECK IP BLOCK LIST
       // --------------------------------------------------------
 
-      const blocked =
-        isIPBlocked(ip);
+      try {
 
-      if (blocked) {
+        const blocked =
+          isIPBlocked(ip);
 
-        console.log(
-          `🚫 BLOCKED REQUEST: ${ip} ${req.method} ${req.path}`,
+        if (blocked) {
+
+          console.log(
+            `🚫 BLOCKED REQUEST: ${ip} ${req.method} ${req.path}`,
+          );
+
+          return res.status(403).json({
+
+            error:
+              "Access denied",
+
+            message:
+              "Your IP address has been temporarily blocked.",
+
+            ip_address:
+              ip,
+
+            status:
+              "BLOCKED",
+          });
+        }
+
+      } catch (error) {
+
+        console.error(
+          "❌ IP blocking check failed:",
+          error,
         );
 
-        return res.status(403).json({
-
-          error:
-            "Access denied",
-
-          message:
-            "Your IP address has been temporarily blocked.",
-
-          ip_address:
-            ip,
-
-          status:
-            "BLOCKED",
-        });
+        // Do not crash the application.
+        // Allow request to continue.
       }
-
-      // --------------------------------------------------------
-      // IP ALLOWED
-      // --------------------------------------------------------
 
       next();
     },
@@ -351,6 +339,91 @@ async function startServer() {
 
   app.use(
     trafficLogger,
+  );
+
+  // ============================================================
+  // HEALTH CHECK
+  // ============================================================
+
+  app.get(
+    "/health",
+    async (
+      req,
+      res,
+    ) => {
+
+      try {
+
+        await pool.query(
+          "SELECT 1",
+        );
+
+        return res.status(200).json({
+
+          status:
+            "healthy",
+
+          service:
+            "SkillSwap",
+
+          database:
+            "connected",
+
+          timestamp:
+            new Date().toISOString(),
+
+        });
+
+      } catch (error) {
+
+        console.error(
+          "❌ Health check database error:",
+          error,
+        );
+
+        return res.status(503).json({
+
+          status:
+            "unhealthy",
+
+          service:
+            "SkillSwap",
+
+          database:
+            "disconnected",
+
+          timestamp:
+            new Date().toISOString(),
+
+        });
+      }
+    },
+  );
+
+  // ============================================================
+  // ROOT HEALTH / APPLICATION CHECK
+  // ============================================================
+
+  app.get(
+    "/api/health",
+    (
+      req,
+      res,
+    ) => {
+
+      return res.status(200).json({
+
+        status:
+          "ok",
+
+        service:
+          "SkillSwap",
+
+        timestamp:
+          new Date().toISOString(),
+
+      });
+    },
   );
 
   // ============================================================
@@ -932,8 +1005,7 @@ async function startServer() {
               skill.createdAt,
 
             authorName:
-              (skill as any)
-                .authorName,
+              skill.authorName,
 
           }),
         );
@@ -1085,8 +1157,7 @@ async function startServer() {
       }
 
       if (
-        skills[skillIndex]
-          .authorId !==
+        skills[skillIndex].authorId !==
         user.id
       ) {
 
@@ -1147,14 +1218,25 @@ async function startServer() {
         "dist",
       );
 
+    console.log(
+      `📦 Serving production files from: ${distPath}`,
+    );
+
     app.use(
       express.static(
         distPath,
       ),
     );
 
+    // ----------------------------------------------------------
+    // SPA FALLBACK
+    //
+    // Express 5 does not accept "*" in the same way as older
+    // versions. Use a regex instead.
+    // ----------------------------------------------------------
+
     app.get(
-      "*",
+      /^(?!\/api).*/,
       (
         req,
         res,
@@ -1171,72 +1253,187 @@ async function startServer() {
   }
 
   // ============================================================
+  // 404 HANDLER
+  // ============================================================
+
+  app.use(
+    (
+      req,
+      res,
+    ) => {
+
+      if (
+        req.path.startsWith(
+          "/api/",
+        )
+      ) {
+
+        return res.status(404).json({
+
+          error:
+            "API endpoint not found",
+
+          path:
+            req.path,
+
+        });
+      }
+
+      return res.status(404).send(
+        "Not Found",
+      );
+    },
+  );
+
+  // ============================================================
+  // GLOBAL ERROR HANDLER
+  // ============================================================
+
+  app.use(
+    (
+      error: any,
+      req: express.Request,
+      res: express.Response,
+      next: express.NextFunction,
+    ) => {
+
+      console.error(
+        "❌ Express error:",
+        error,
+      );
+
+      if (res.headersSent) {
+        return next(error);
+      }
+
+      return res.status(500).json({
+
+        error:
+          "Internal server error",
+
+      });
+    },
+  );
+
+  // ============================================================
   // START SERVER
   // ============================================================
 
-  app.listen(
-    PORT,
-    "0.0.0.0",
-    () => {
+  const server =
+    app.listen(
+      PORT,
+      "0.0.0.0",
+      () => {
 
-      console.log(
-        `Server running on http://localhost:${PORT}`,
-      );
-
-      console.log(
-        "🔐 Automatic security analysis enabled",
-      );
-
-      console.log(
-        "🛡️ IP blocking middleware enabled",
-      );
-
-      // ========================================================
-      // INITIAL SECURITY ANALYSIS
-      // ========================================================
-
-      console.log(
-        "\n🔐 Running initial security analysis...",
-      );
-
-      runSecurityAnalysis()
-        .catch(
-          (error) => {
-
-            console.error(
-              "❌ Initial security analysis failed:",
-              error,
-            );
-          },
+        console.log(
+          `🚀 Server running on http://0.0.0.0:${PORT}`,
         );
 
-      // ========================================================
-      // AUTOMATIC SECURITY ANALYSIS
-      // ========================================================
+        console.log(
+          `🌐 Local access: http://localhost:${PORT}`,
+        );
 
-      setInterval(
-        async () => {
+        console.log(
+          "🔐 Automatic security analysis enabled",
+        );
 
-          console.log(
-            "\n🔐 Running automatic security analysis...",
+        console.log(
+          "🛡️ IP blocking middleware enabled",
+        );
+
+        console.log(
+          "📊 Traffic logging enabled",
+        );
+
+        console.log(
+          "❤️ Health check: /health",
+        );
+
+        // ======================================================
+        // INITIAL SECURITY ANALYSIS
+        // ======================================================
+
+        console.log(
+          "\n🔐 Running initial security analysis...",
+        );
+
+        runSecurityAnalysis()
+          .then(() => {
+
+            console.log(
+              "✅ Initial security analysis completed",
+            );
+
+          })
+          .catch(
+            (error) => {
+
+              console.error(
+                "❌ Initial security analysis failed:",
+                error,
+              );
+
+            },
           );
 
-          try {
+        // ======================================================
+        // AUTOMATIC SECURITY ANALYSIS
+        // ======================================================
 
-            await runSecurityAnalysis();
+        setInterval(
+          async () => {
 
-          } catch (error) {
-
-            console.error(
-              "❌ Automatic security analysis failed:",
-              error,
+            console.log(
+              "\n🔐 Running automatic security analysis...",
             );
-          }
 
-        },
+            try {
 
-        5 * 60 * 1000,
+              await runSecurityAnalysis();
+
+              console.log(
+                "✅ Automatic security analysis completed",
+              );
+
+            } catch (error) {
+
+              console.error(
+                "❌ Automatic security analysis failed:",
+                error,
+              );
+            }
+
+          },
+
+          5 * 60 * 1000,
+        );
+      },
+    );
+
+  // ============================================================
+  // SERVER ERROR HANDLER
+  // ============================================================
+
+  server.on(
+    "error",
+    (error: NodeJS.ErrnoException) => {
+
+      console.error(
+        "❌ Server error:",
+        error,
       );
+
+      if (
+        error.code ===
+        "EADDRINUSE"
+      ) {
+
+        console.error(
+          `❌ Port ${PORT} is already in use.`,
+        );
+
+        process.exit(1);
+      }
     },
   );
 }
