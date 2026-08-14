@@ -37,6 +37,18 @@ const DEFAULT_BLOCK_DURATION =
 // 15 minutes
 
 // ============================================================
+// SECURITY ENFORCEMENT RESULT
+// ============================================================
+
+export interface SecurityEnforcementResult {
+  ip: string;
+  action: SecurityAction;
+  blocked: boolean;
+  message: string;
+  reason: string;
+}
+
+// ============================================================
 // APPLY SECURITY ACTION
 // ============================================================
 
@@ -45,7 +57,7 @@ export function enforceSecurityAction(
   action: SecurityAction,
   reason: string = "Security violation",
   durationMs: number = DEFAULT_BLOCK_DURATION,
-): void {
+): SecurityEnforcementResult {
 
   const normalizedIP =
     normalizeIP(ip);
@@ -66,7 +78,22 @@ export function enforceSecurityAction(
       `👁️ MONITOR: ${normalizedIP}`,
     );
 
-    return;
+    return {
+
+      ip:
+        normalizedIP,
+
+      action:
+        "MONITOR",
+
+      blocked:
+        false,
+
+      message:
+        `IP ${normalizedIP} is being monitored`,
+
+      reason,
+    };
   }
 
   // ==========================================================
@@ -85,7 +112,22 @@ export function enforceSecurityAction(
       `📝 Reason: ${reason}`,
     );
 
-    return;
+    return {
+
+      ip:
+        normalizedIP,
+
+      action:
+        "ALERT",
+
+      blocked:
+        false,
+
+      message:
+        `Security alert generated for ${normalizedIP}`,
+
+      reason,
+    };
   }
 
   // ==========================================================
@@ -102,8 +144,77 @@ export function enforceSecurityAction(
       reason,
     );
 
-    return;
+    console.log(
+      `🚫 BLOCKED: ${normalizedIP}`,
+    );
+
+    return {
+
+      ip:
+        normalizedIP,
+
+      action:
+        "BLOCK",
+
+      blocked:
+        true,
+
+      message:
+        `IP ${normalizedIP} has been blocked`,
+
+      reason,
+    };
   }
+
+  // ==========================================================
+  // FALLBACK
+  // ==========================================================
+
+  return {
+
+    ip:
+      normalizedIP,
+
+    action:
+      "MONITOR",
+
+    blocked:
+      false,
+
+    message:
+      `IP ${normalizedIP} is being monitored`,
+
+    reason,
+  };
+}
+
+// ============================================================
+// SECURITY RESPONSE
+// ============================================================
+//
+// IMPORTANT:
+//
+// securityService.ts is currently importing:
+//
+// enforceSecurityResponse
+//
+// Therefore this function MUST exist and be exported.
+//
+// ============================================================
+
+export function enforceSecurityResponse(
+  ip: string,
+  action: SecurityAction,
+  reason: string = "Security violation",
+  durationMs: number = DEFAULT_BLOCK_DURATION,
+): SecurityEnforcementResult {
+
+  return enforceSecurityAction(
+    ip,
+    action,
+    reason,
+    durationMs,
+  );
 }
 
 // ============================================================
@@ -114,15 +225,13 @@ export function enforceBlock(
   ip: string,
   reason: string = "Security violation",
   durationMs: number = DEFAULT_BLOCK_DURATION,
-): void {
+): SecurityEnforcementResult {
 
-  const normalizedIP =
-    normalizeIP(ip);
-
-  blockIP(
-    normalizedIP,
-    durationMs,
+  return enforceSecurityAction(
+    ip,
+    "BLOCK",
     reason,
+    durationMs,
   );
 }
 
@@ -136,6 +245,10 @@ export function enforceUnblock(
 
   const normalizedIP =
     normalizeIP(ip);
+
+  console.log(
+    `🔓 UNBLOCK REQUEST: ${normalizedIP}`,
+  );
 
   return unblockIP(
     normalizedIP,
@@ -171,12 +284,13 @@ export function getBlockedIPsList() {
 // BACKWARD COMPATIBILITY
 // ============================================================
 //
-// Your server.ts currently imports:
+// server.ts currently imports:
 //
 // getBlockedIPs
 //
-// So export it directly.
+// Therefore export it directly.
 //
+// ============================================================
 
 export {
   getBlockedIPs,
