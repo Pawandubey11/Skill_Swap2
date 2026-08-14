@@ -6,7 +6,6 @@ import {
   blockIP,
   isIPBlocked,
   getBlockedIPs,
-  unblockIP,
   normalizeIP,
 } from "./blockManager.js";
 
@@ -15,22 +14,14 @@ import {
 // ============================================================
 
 export interface EnforcementResult {
-  ip_address: string;
-  action:
-    | "BLOCK"
-    | "ALERT"
-    | "MONITOR"
-    | "NORMAL";
 
-  status:
-    | "BLOCKED"
-    | "ALLOWED";
+  ip_address: string;
+
+  action: string;
+
+  status: string;
 
   message: string;
-
-  blocked_at?: number;
-  expires_at?: number;
-  reason?: string;
 }
 
 // ============================================================
@@ -40,115 +31,72 @@ export interface EnforcementResult {
 export function enforceSecurityResponse(
   response: any,
 ): EnforcementResult {
-  const ip_address =
+
+  const {
+
+    ip_address,
+
+    risk_level,
+
+    risk_score,
+
+    action,
+
+    message,
+
+  } = response;
+
+  // ----------------------------------------------------------
+  // NORMALIZE IP
+  // ----------------------------------------------------------
+
+  const normalizedIP =
     normalizeIP(
-      response.ip_address,
+      ip_address,
     );
-
-  const risk_level =
-    String(
-      response.risk_level ||
-        "LOW",
-    ).toUpperCase();
-
-  const risk_score =
-    Number(
-      response.risk_score || 0,
-    );
-
-  const requestedAction =
-    response.action;
-
-  const originalMessage =
-    response.message;
 
   console.log(
     "\n=== ENFORCEMENT ===",
   );
 
-  console.log({
-    ip_address,
-    risk_level,
-    risk_score,
-    requested_action:
-      requestedAction,
-  });
+  console.log(
+    `IP: ${normalizedIP}`,
+  );
+
+  console.log(
+    `Risk Level: ${risk_level}`,
+  );
+
+  console.log(
+    `Risk Score: ${risk_score}`,
+  );
 
   // ==========================================================
-  // CRITICAL RISK
-  // ==========================================================
-
-  if (
-    risk_level ===
-    "CRITICAL"
-  ) {
-    const blockEntry =
-      blockIP(
-        ip_address,
-        `CRITICAL risk detected with score ${risk_score}`,
-      );
-
-    console.log(
-      `🚫 ENFORCEMENT: ${ip_address} -> BLOCKED`,
-    );
-
-    return {
-      ip_address,
-
-      action: "BLOCK",
-
-      status: "BLOCKED",
-
-      message:
-        "Critical risk detected. IP temporarily blocked.",
-
-      blocked_at:
-        blockEntry.blocked_at,
-
-      expires_at:
-        blockEntry.expires_at,
-
-      reason:
-        blockEntry.reason,
-    };
-  }
-
-  // ==========================================================
-  // HIGH RISK
+  // LOW RISK
   // ==========================================================
 
   if (
     risk_level ===
-    "HIGH"
+    "LOW"
   ) {
-    const blockEntry =
-      blockIP(
-        ip_address,
-        `HIGH risk detected with score ${risk_score}`,
-      );
 
     console.log(
-      `🚫 ENFORCEMENT: ${ip_address} -> BLOCKED`,
+      `🟢 MONITOR: ${normalizedIP}`,
     );
 
     return {
-      ip_address,
 
-      action: "BLOCK",
+      ip_address:
+        normalizedIP,
 
-      status: "BLOCKED",
+      action:
+        "MONITOR",
+
+      status:
+        "ALLOWED",
 
       message:
-        "High risk traffic detected. IP temporarily blocked.",
-
-      blocked_at:
-        blockEntry.blocked_at,
-
-      expires_at:
-        blockEntry.expires_at,
-
-      reason:
-        blockEntry.reason,
+        "Traffic is being monitored normally.",
     };
   }
 
@@ -160,16 +108,21 @@ export function enforceSecurityResponse(
     risk_level ===
     "MEDIUM"
   ) {
+
     console.log(
-      `🟡 ENFORCEMENT: ${ip_address} -> ALERT`,
+      `🟡 ALERT: ${normalizedIP}`,
     );
 
     return {
-      ip_address,
 
-      action: "ALERT",
+      ip_address:
+        normalizedIP,
 
-      status: "ALLOWED",
+      action:
+        "ALERT",
+
+      status:
+        "ALLOWED",
 
       message:
         "Medium risk detected. Traffic remains allowed but is being monitored.",
@@ -177,26 +130,72 @@ export function enforceSecurityResponse(
   }
 
   // ==========================================================
-  // LOW RISK
+  // HIGH RISK
   // ==========================================================
 
   if (
     risk_level ===
-    "LOW"
+    "HIGH"
   ) {
+
+    const entry =
+      blockIP(
+        normalizedIP,
+        `HIGH risk detected with score ${risk_score}`,
+      );
+
     console.log(
-      `🟢 ENFORCEMENT: ${ip_address} -> MONITOR`,
+      `🚫 HIGH RISK IP BLOCKED: ${normalizedIP}`,
     );
 
     return {
-      ip_address,
 
-      action: "MONITOR",
+      ip_address:
+        normalizedIP,
 
-      status: "ALLOWED",
+      action:
+        "BLOCK",
+
+      status:
+        "BLOCKED",
 
       message:
-        "Traffic is being monitored normally.",
+        "High risk traffic detected. IP temporarily blocked.",
+
+    };
+  }
+
+  // ==========================================================
+  // CRITICAL RISK
+  // ==========================================================
+
+  if (
+    risk_level ===
+    "CRITICAL"
+  ) {
+
+    blockIP(
+      normalizedIP,
+      `CRITICAL risk detected with score ${risk_score}`,
+    );
+
+    console.log(
+      `🚨 CRITICAL RISK IP BLOCKED: ${normalizedIP}`,
+    );
+
+    return {
+
+      ip_address:
+        normalizedIP,
+
+      action:
+        "BLOCK",
+
+      status:
+        "BLOCKED",
+
+      message:
+        "Critical risk detected. IP temporarily blocked.",
     };
   }
 
@@ -205,25 +204,23 @@ export function enforceSecurityResponse(
   // ==========================================================
 
   console.log(
-    `⚪ ENFORCEMENT: ${ip_address} -> MONITOR`,
+    `ℹ️ FALLBACK ACTION: ${normalizedIP}`,
   );
 
   return {
-    ip_address,
+
+    ip_address:
+      normalizedIP,
 
     action:
-      requestedAction ===
-      "BLOCK"
-        ? "BLOCK"
-        : requestedAction ===
-            "ALERT"
-          ? "ALERT"
-          : "MONITOR",
+      action ||
+      "MONITOR",
 
-    status: "ALLOWED",
+    status:
+      "ALLOWED",
 
     message:
-      originalMessage ||
+      message ||
       "Traffic allowed.",
   };
 }
@@ -235,5 +232,5 @@ export function enforceSecurityResponse(
 export {
   isIPBlocked,
   getBlockedIPs,
-  unblockIP,
+  normalizeIP,
 };
