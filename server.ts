@@ -32,26 +32,17 @@ function getClientIP(req: express.Request): string {
 
   let ip: string;
 
-  // ------------------------------------------------------------
   // AWS ALB / NGINX / PROXY
-  // ------------------------------------------------------------
-
   if (typeof forwardedFor === "string") {
     ip = forwardedFor.split(",")[0].trim();
   }
 
-  // ------------------------------------------------------------
   // Express can sometimes provide an array
-  // ------------------------------------------------------------
-
   else if (Array.isArray(forwardedFor)) {
     ip = forwardedFor[0]?.trim() || "";
   }
 
-  // ------------------------------------------------------------
   // Direct connection
-  // ------------------------------------------------------------
-
   else {
     ip =
       req.ip ||
@@ -59,28 +50,18 @@ function getClientIP(req: express.Request): string {
       "unknown";
   }
 
-  // ------------------------------------------------------------
   // Normalize IPv4-mapped IPv6
-  // ::ffff:172.17.0.1
-  // -> 172.17.0.1
-  // ------------------------------------------------------------
-
+  // ::ffff:172.17.0.1 -> 172.17.0.1
   if (ip.startsWith("::ffff:")) {
     ip = ip.substring(7);
   }
 
-  // ------------------------------------------------------------
   // Normalize localhost IPv6
-  // ------------------------------------------------------------
-
   if (ip === "::1") {
     ip = "127.0.0.1";
   }
 
-  // ------------------------------------------------------------
   // Remove spaces
-  // ------------------------------------------------------------
-
   ip = ip.trim();
 
   if (!ip) {
@@ -287,9 +268,9 @@ async function startServer() {
         `🔎 IP CHECK: ${ip} ${req.method} ${req.path}`,
       );
 
-      // --------------------------------------------------------
+      // ========================================================
       // CHECK IP BLOCK LIST
-      // --------------------------------------------------------
+      // ========================================================
 
       try {
 
@@ -325,7 +306,7 @@ async function startServer() {
           error,
         );
 
-        // Do not crash the application.
+        // Do not crash application.
         // Allow request to continue.
       }
 
@@ -430,6 +411,7 @@ async function startServer() {
   // PHASE 3 — SECURITY EVENTS
   // ============================================================
 
+
   // ============================================================
   // GET ALL SECURITY EVENTS
   // ============================================================
@@ -465,7 +447,7 @@ async function startServer() {
             LIMIT 100
           `);
 
-        return res.json(
+        return res.status(200).json(
           rows,
         );
 
@@ -484,75 +466,12 @@ async function startServer() {
     },
   );
 
-  // ============================================================
-  // GET SINGLE SECURITY EVENT
-  // ============================================================
-
-  app.get(
-    "/api/security-events/:id",
-    async (
-      req,
-      res,
-    ) => {
-
-      try {
-
-        const [rows]: any =
-          await pool.query(
-            `
-            SELECT
-              id,
-              ip_address,
-              event_type,
-              severity,
-              risk_score,
-              anomaly_score,
-              action,
-              status,
-              risk_reasons,
-              message,
-              created_at
-
-            FROM security_events
-
-            WHERE id = ?
-            `,
-            [
-              req.params.id,
-            ],
-          );
-
-        if (
-          rows.length === 0
-        ) {
-
-          return res.status(404).json({
-            error:
-              "Security event not found",
-          });
-        }
-
-        return res.json(
-          rows[0],
-        );
-
-      } catch (error) {
-
-        console.error(
-          "❌ Failed to fetch security event:",
-          error,
-        );
-
-        return res.status(500).json({
-          error:
-            "Failed to fetch security event",
-        });
-      }
-    },
-  );
 
   // ============================================================
   // SECURITY EVENT SUMMARY
+  //
+  // IMPORTANT:
+  // This MUST be BEFORE /api/security-events/:id
   // ============================================================
 
   app.get(
@@ -570,40 +489,71 @@ async function startServer() {
 
               COUNT(*) AS total_events,
 
-              SUM(
-                severity = 'CRITICAL'
+              COALESCE(
+                SUM(severity = 'CRITICAL'),
+                0
               ) AS critical_events,
 
-              SUM(
-                severity = 'HIGH'
+              COALESCE(
+                SUM(severity = 'HIGH'),
+                0
               ) AS high_events,
 
-              SUM(
-                severity = 'MEDIUM'
+              COALESCE(
+                SUM(severity = 'MEDIUM'),
+                0
               ) AS medium_events,
 
-              SUM(
-                severity = 'LOW'
+              COALESCE(
+                SUM(severity = 'LOW'),
+                0
               ) AS low_events,
 
-              SUM(
-                action = 'BLOCK'
+              COALESCE(
+                SUM(action = 'BLOCK'),
+                0
               ) AS blocked_events,
 
-              SUM(
-                action = 'ALERT'
+              COALESCE(
+                SUM(action = 'ALERT'),
+                0
               ) AS alert_events,
 
-              SUM(
-                action = 'MONITOR'
+              COALESCE(
+                SUM(action = 'MONITOR'),
+                0
               ) AS monitored_events
 
             FROM security_events
           `);
 
-        return res.json(
-          rows[0],
-        );
+        return res.status(200).json({
+
+          total_events:
+            Number(rows[0].total_events),
+
+          critical_events:
+            Number(rows[0].critical_events),
+
+          high_events:
+            Number(rows[0].high_events),
+
+          medium_events:
+            Number(rows[0].medium_events),
+
+          low_events:
+            Number(rows[0].low_events),
+
+          blocked_events:
+            Number(rows[0].blocked_events),
+
+          alert_events:
+            Number(rows[0].alert_events),
+
+          monitored_events:
+            Number(rows[0].monitored_events),
+
+        });
 
       } catch (error) {
 
@@ -619,6 +569,7 @@ async function startServer() {
       }
     },
   );
+
 
   // ============================================================
   // GET CURRENTLY BLOCKED IPS
@@ -636,7 +587,7 @@ async function startServer() {
         const blockedIPs =
           getBlockedIPs();
 
-        return res.json({
+        return res.status(200).json({
 
           total_blocked:
             blockedIPs.length,
@@ -661,8 +612,12 @@ async function startServer() {
     },
   );
 
+
   // ============================================================
   // UPDATE SECURITY EVENT STATUS
+  //
+  // IMPORTANT:
+  // This MUST be BEFORE /api/security-events/:id
   // ============================================================
 
   app.patch(
@@ -725,7 +680,7 @@ async function startServer() {
           });
         }
 
-        return res.json({
+        return res.status(200).json({
 
           message:
             "Security event status updated",
@@ -752,6 +707,84 @@ async function startServer() {
     },
   );
 
+
+  // ============================================================
+  // GET SINGLE SECURITY EVENT
+  //
+  // IMPORTANT:
+  // This dynamic route MUST be AFTER:
+  //
+  // /summary
+  // /blocked-ips
+  // /:id/status
+  //
+  // Otherwise "summary" can be interpreted as an ID.
+  // ============================================================
+
+  app.get(
+    "/api/security-events/:id",
+    async (
+      req,
+      res,
+    ) => {
+
+      try {
+
+        const [rows]: any =
+          await pool.query(
+            `
+            SELECT
+              id,
+              ip_address,
+              event_type,
+              severity,
+              risk_score,
+              anomaly_score,
+              action,
+              status,
+              risk_reasons,
+              message,
+              created_at
+
+            FROM security_events
+
+            WHERE id = ?
+            `,
+            [
+              req.params.id,
+            ],
+          );
+
+        if (
+          rows.length === 0
+        ) {
+
+          return res.status(404).json({
+            error:
+              "Security event not found",
+          });
+        }
+
+        return res.status(200).json(
+          rows[0],
+        );
+
+      } catch (error) {
+
+        console.error(
+          "❌ Failed to fetch security event:",
+          error,
+        );
+
+        return res.status(500).json({
+          error:
+            "Failed to fetch security event",
+        });
+      }
+    },
+  );
+
+
   // ============================================================
   // MANUAL SECURITY ANALYSIS
   // ============================================================
@@ -771,7 +804,7 @@ async function startServer() {
 
         await runSecurityAnalysis();
 
-        return res.json({
+        return res.status(200).json({
 
           success:
             true,
@@ -800,6 +833,7 @@ async function startServer() {
       }
     },
   );
+
 
   // ============================================================
   // REGISTER
@@ -896,6 +930,7 @@ async function startServer() {
     },
   );
 
+
   // ============================================================
   // LOGIN
   // ============================================================
@@ -965,6 +1000,7 @@ async function startServer() {
     },
   );
 
+
   // ============================================================
   // GET ALL SKILLS
   // ============================================================
@@ -1016,6 +1052,7 @@ async function startServer() {
     },
   );
 
+
   // ============================================================
   // GET SINGLE SKILL
   // ============================================================
@@ -1047,6 +1084,7 @@ async function startServer() {
       );
     },
   );
+
 
   // ============================================================
   // CREATE SKILL
@@ -1120,6 +1158,7 @@ async function startServer() {
     },
   );
 
+
   // ============================================================
   // DELETE SKILL
   // ============================================================
@@ -1176,6 +1215,7 @@ async function startServer() {
     },
   );
 
+
   // ============================================================
   // VITE DEVELOPMENT MODE
   // ============================================================
@@ -1228,12 +1268,12 @@ async function startServer() {
       ),
     );
 
-    // ----------------------------------------------------------
+    // ==========================================================
     // SPA FALLBACK
     //
     // Express 5 does not accept "*" in the same way as older
     // versions. Use a regex instead.
-    // ----------------------------------------------------------
+    // ==========================================================
 
     app.get(
       /^(?!\/api).*/,
@@ -1251,6 +1291,7 @@ async function startServer() {
       },
     );
   }
+
 
   // ============================================================
   // 404 HANDLER
@@ -1285,6 +1326,7 @@ async function startServer() {
     },
   );
 
+
   // ============================================================
   // GLOBAL ERROR HANDLER
   // ============================================================
@@ -1314,6 +1356,7 @@ async function startServer() {
       });
     },
   );
+
 
   // ============================================================
   // START SERVER
@@ -1410,6 +1453,7 @@ async function startServer() {
       },
     );
 
+
   // ============================================================
   // SERVER ERROR HANDLER
   // ============================================================
@@ -1437,6 +1481,7 @@ async function startServer() {
     },
   );
 }
+
 
 // ============================================================
 // APPLICATION START
