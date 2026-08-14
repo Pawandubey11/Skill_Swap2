@@ -1,11 +1,20 @@
 // ============================================================
-// IP BLOCK MANAGER
+// BLOCK MANAGER
+// ============================================================
+//
+// Responsible for:
+// 1. Normalizing IP addresses
+// 2. Blocking IP addresses
+// 3. Unblocking IP addresses
+// 4. Checking whether an IP is blocked
+// 5. Returning currently blocked IPs
+//
 // ============================================================
 
-export interface BlockEntry {
-  ip_address: string;
-  blocked_at: number;
-  expires_at: number;
+interface BlockedIP {
+  ip: string;
+  blockedAt: number;
+  expiresAt: number | null;
   reason: string;
 }
 
@@ -13,54 +22,39 @@ export interface BlockEntry {
 // IN-MEMORY BLOCK LIST
 // ============================================================
 
-const blockedIPs = new Map<string, BlockEntry>();
+const blockedIPs = new Map<string, BlockedIP>();
 
 // ============================================================
-// BLOCK DURATION
-// 10 minutes
+// NORMALIZE IP
 // ============================================================
 
-const BLOCK_DURATION_MS =
-  10 * 60 * 1000;
-
-// ============================================================
-// NORMALIZE IP ADDRESS
-// ============================================================
-
-export function normalizeIP(
-  ip_address: string,
-): string {
-
-  if (!ip_address) {
+export function normalizeIP(ip: string): string {
+  if (!ip) {
     return "unknown";
   }
 
-  let ip =
-    ip_address.trim();
+  ip = ip.trim();
 
   // ----------------------------------------------------------
-  // IPv6 mapped IPv4
+  // IPv4 mapped IPv6
+  //
   // Example:
-  // ::ffff:172.17.0.1
+  // ::ffff:192.168.1.10
+  //
   // becomes:
-  // 172.17.0.1
+  // 192.168.1.10
   // ----------------------------------------------------------
 
-  if (
-    ip.startsWith("::ffff:")
-  ) {
-    ip =
-      ip.substring(7);
+  if (ip.startsWith("::ffff:")) {
+    ip = ip.substring(7);
   }
 
   // ----------------------------------------------------------
-  // IPv6 localhost
+  // Localhost IPv6
   // ----------------------------------------------------------
 
-  if (
-    ip === "::1"
-  ) {
-    ip = "127.0.0.1";
+  if (ip === "::1") {
+    return "127.0.0.1";
   }
 
   return ip;
@@ -71,89 +65,54 @@ export function normalizeIP(
 // ============================================================
 
 export function blockIP(
-  ip_address: string,
-  reason: string,
-): BlockEntry {
+  ip: string,
+  durationMs: number | null = null,
+  reason: string = "Security violation",
+): void {
 
-  const ip =
-    normalizeIP(ip_address);
+  const normalizedIP = normalizeIP(ip);
 
-  const now =
-    Date.now();
+  if (
+    !normalizedIP ||
+    normalizedIP === "unknown"
+  ) {
+    return;
+  }
 
-  const entry: BlockEntry = {
+  const now = Date.now();
 
-    ip_address: ip,
-
-    blocked_at:
-      now,
-
-    expires_at:
-      now +
-      BLOCK_DURATION_MS,
-
-    reason,
-  };
+  const expiresAt =
+    durationMs !== null
+      ? now + durationMs
+      : null;
 
   blockedIPs.set(
-    ip,
-    entry,
+    normalizedIP,
+    {
+      ip: normalizedIP,
+      blockedAt: now,
+      expiresAt,
+      reason,
+    },
   );
 
   console.log(
-    `🚫 IP BLOCKED: ${ip} | Duration: 10 minutes | Reason: ${reason}`,
+    `🚫 IP BLOCKED: ${normalizedIP}`,
   );
 
-  return entry;
-}
-
-// ============================================================
-// CHECK WHETHER IP IS BLOCKED
-// ============================================================
-
-export function isIPBlocked(
-  ip_address: string,
-): boolean {
-
-  const ip =
-    normalizeIP(ip_address);
-
-  const entry =
-    blockedIPs.get(ip);
-
-  // ----------------------------------------------------------
-  // IP NOT FOUND
-  // ----------------------------------------------------------
-
-  if (!entry) {
-    return false;
-  }
-
-  // ----------------------------------------------------------
-  // CHECK EXPIRATION
-  // ----------------------------------------------------------
-
-  if (
-    Date.now() >=
-    entry.expires_at
-  ) {
-
-    blockedIPs.delete(
-      ip,
-    );
-
+  if (expiresAt) {
     console.log(
-      `✅ IP block expired: ${ip}`,
+      `⏱️ Block expires in ${durationMs} ms`,
     );
-
-    return false;
+  } else {
+    console.log(
+      `⛔ Permanent block`,
+    );
   }
 
-  // ----------------------------------------------------------
-  // IP STILL BLOCKED
-  // ----------------------------------------------------------
-
-  return true;
+  console.log(
+    `📝 Reason: ${reason}`,
+  );
 }
 
 // ============================================================
@@ -161,66 +120,136 @@ export function isIPBlocked(
 // ============================================================
 
 export function unblockIP(
-  ip_address: string,
+  ip: string,
 ): boolean {
 
-  const ip =
-    normalizeIP(ip_address);
+  const normalizedIP =
+    normalizeIP(ip);
 
-  const removed =
-    blockedIPs.delete(ip);
+  const deleted =
+    blockedIPs.delete(
+      normalizedIP,
+    );
 
-  if (removed) {
+  if (deleted) {
 
     console.log(
-      `🔓 IP manually unblocked: ${ip}`,
+      `✅ IP UNBLOCKED: ${normalizedIP}`,
     );
   }
 
-  return removed;
+  return deleted;
 }
 
 // ============================================================
-// GET ALL BLOCKED IPS
+// CHECK IF IP IS BLOCKED
 // ============================================================
 
-export function getBlockedIPs(): BlockEntry[] {
+export function isBlocked(
+  ip: string,
+): boolean {
+
+  const normalizedIP =
+    normalizeIP(ip);
+
+  const entry =
+    blockedIPs.get(
+      normalizedIP,
+    );
+
+  if (!entry) {
+    return false;
+  }
+
+  // ----------------------------------------------------------
+  // Permanent block
+  // ----------------------------------------------------------
+
+  if (
+    entry.expiresAt === null
+  ) {
+    return true;
+  }
+
+  // ----------------------------------------------------------
+  // Temporary block expired
+  // ----------------------------------------------------------
+
+  if (
+    Date.now() >=
+    entry.expiresAt
+  ) {
+
+    blockedIPs.delete(
+      normalizedIP,
+    );
+
+    console.log(
+      `🔓 IP BLOCK EXPIRED: ${normalizedIP}`,
+    );
+
+    return false;
+  }
+
+  return true;
+}
+
+// ============================================================
+// GET BLOCKED IPS
+// ============================================================
+
+export function getBlockedIPs(): BlockedIP[] {
 
   const now =
     Date.now();
 
   // ----------------------------------------------------------
-  // REMOVE EXPIRED ENTRIES
+  // Remove expired entries
   // ----------------------------------------------------------
 
   for (
     const [
       ip,
       entry,
-    ]
-    of blockedIPs.entries()
+    ] of blockedIPs.entries()
   ) {
 
     if (
-      now >=
-      entry.expires_at
+      entry.expiresAt !== null &&
+      now >= entry.expiresAt
     ) {
 
-      blockedIPs.delete(
-        ip,
-      );
+      blockedIPs.delete(ip);
 
       console.log(
-        `✅ IP block expired: ${ip}`,
+        `🔓 Expired IP removed: ${ip}`,
       );
     }
   }
 
-  // ----------------------------------------------------------
-  // RETURN ACTIVE BLOCKS
-  // ----------------------------------------------------------
-
   return Array.from(
     blockedIPs.values(),
+  );
+}
+
+// ============================================================
+// GET BLOCKED IP COUNT
+// ============================================================
+
+export function getBlockedIPCount(): number {
+
+  return getBlockedIPs().length;
+}
+
+// ============================================================
+// CLEAR ALL BLOCKED IPS
+// ============================================================
+
+export function clearBlockedIPs(): void {
+
+  blockedIPs.clear();
+
+  console.log(
+    "🧹 All blocked IPs cleared",
   );
 }
