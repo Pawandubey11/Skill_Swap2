@@ -20,16 +20,7 @@ export interface BlockedIP {
 }
 
 // ============================================================
-// IN-MEMORY ACTIVE BLOCK LIST
-// ============================================================
-//
-// This stores currently active IP blocks.
-//
-// IMPORTANT:
-// This is runtime memory. It will be cleared when the Node.js
-// process/container restarts.
-//
-// Historical security events are stored separately in MySQL.
+// ACTIVE BLOCK LIST
 // ============================================================
 
 const blockedIPs = new Map<string, BlockedIP>();
@@ -43,16 +34,10 @@ export function normalizeIP(ip: string): string {
     return "unknown";
   }
 
-  let normalizedIP = ip.trim();
+  let normalizedIP = String(ip).trim();
 
-  // ----------------------------------------------------------
-  // IPv4-mapped IPv6
-  //
-  // ::ffff:192.168.1.10
-  // becomes
-  // 192.168.1.10
-  // ----------------------------------------------------------
-
+  // Remove IPv4-mapped IPv6 prefix
+  // ::ffff:192.168.1.10 -> 192.168.1.10
   if (
     normalizedIP
       .toLowerCase()
@@ -61,35 +46,24 @@ export function normalizeIP(ip: string): string {
     normalizedIP = normalizedIP.substring(7);
   }
 
-  // ----------------------------------------------------------
   // IPv6 localhost
-  // ----------------------------------------------------------
-
+  // ::1 -> 127.0.0.1
   if (normalizedIP === "::1") {
     return "127.0.0.1";
   }
 
-  // ----------------------------------------------------------
-  // Remove IPv6 zone identifier if present
-  //
-  // Example:
-  // fe80::1%eth0
-  // becomes:
-  // fe80::1
-  // ----------------------------------------------------------
-
-  const zoneIndex =
-    normalizedIP.indexOf("%");
+  // Remove IPv6 zone identifier
+  // fe80::1%eth0 -> fe80::1
+  const zoneIndex = normalizedIP.indexOf("%");
 
   if (zoneIndex !== -1) {
-    normalizedIP =
-      normalizedIP.substring(
-        0,
-        zoneIndex,
-      );
+    normalizedIP = normalizedIP.substring(
+      0,
+      zoneIndex,
+    );
   }
 
-  return normalizedIP;
+  return normalizedIP || "unknown";
 }
 
 // ============================================================
@@ -99,23 +73,16 @@ export function normalizeIP(ip: string): string {
 function removeExpiredBlocks(): void {
   const now = Date.now();
 
-  for (
-    const [
-      ip,
-      entry,
-    ] of blockedIPs.entries()
-  ) {
+  for (const [ip, entry] of blockedIPs.entries()) {
+
     // Permanent block
-    if (
-      entry.expiresAt === null
-    ) {
+    if (entry.expiresAt === null) {
       continue;
     }
 
     // Temporary block expired
-    if (
-      now >= entry.expiresAt
-    ) {
+    if (now >= entry.expiresAt) {
+
       blockedIPs.delete(ip);
 
       console.log(
@@ -135,17 +102,17 @@ export function blockIP(
   reason: string = "Security violation",
 ): void {
 
-  const normalizedIP =
-    normalizeIP(ip);
+  const normalizedIP = normalizeIP(ip);
 
   // ----------------------------------------------------------
   // Validate IP
   // ----------------------------------------------------------
 
   if (
-    !normalizedIP ||
-    normalizedIP === "unknown"
+    normalizedIP === "unknown" ||
+    normalizedIP.length === 0
   ) {
+
     console.warn(
       "⚠️ Cannot block unknown IP address",
     );
@@ -154,32 +121,37 @@ export function blockIP(
   }
 
   // ----------------------------------------------------------
-  // Remove expired entries first
+  // Remove expired blocks first
   // ----------------------------------------------------------
 
   removeExpiredBlocks();
 
-  const now =
-    Date.now();
+  const now = Date.now();
 
   const expiresAt =
     durationMs !== null
-      ? now + durationMs
+      ? now + Math.max(0, durationMs)
       : null;
 
   // ----------------------------------------------------------
-  // Store / update block
+  // Create / update block
   // ----------------------------------------------------------
+
+  const block: BlockedIP = {
+    ip: normalizedIP,
+    blockedAt: now,
+    expiresAt,
+    reason,
+  };
 
   blockedIPs.set(
     normalizedIP,
-    {
-      ip: normalizedIP,
-      blockedAt: now,
-      expiresAt,
-      reason,
-    },
+    block,
   );
+
+  // ----------------------------------------------------------
+  // Logging
+  // ----------------------------------------------------------
 
   console.log(
     "============================================================",
@@ -193,9 +165,7 @@ export function blockIP(
     `📝 Reason: ${reason}`,
   );
 
-  if (
-    expiresAt !== null
-  ) {
+  if (expiresAt !== null) {
 
     console.log(
       `⏱️ Duration: ${durationMs} ms`,
@@ -242,7 +212,7 @@ export function unblockIP(
   if (deleted) {
 
     console.log(
-      `✅ IP UNBLOCKED: ${normalizedIP}`,
+      `🔓 IP UNBLOCKED: ${normalizedIP}`,
     );
 
   } else {
@@ -267,7 +237,6 @@ export function isBlocked(
     normalizeIP(ip);
 
   if (
-    !normalizedIP ||
     normalizedIP === "unknown"
   ) {
     return false;
@@ -278,31 +247,21 @@ export function isBlocked(
       normalizedIP,
     );
 
-  // ----------------------------------------------------------
-  // IP is not in block list
-  // ----------------------------------------------------------
-
+  // IP isn't in block list
   if (!entry) {
     return false;
   }
 
-  // ----------------------------------------------------------
   // Permanent block
-  // ----------------------------------------------------------
-
   if (
     entry.expiresAt === null
   ) {
     return true;
   }
 
-  // ----------------------------------------------------------
   // Temporary block expired
-  // ----------------------------------------------------------
-
   if (
-    Date.now() >=
-    entry.expiresAt
+    Date.now() >= entry.expiresAt
   ) {
 
     blockedIPs.delete(
@@ -316,10 +275,7 @@ export function isBlocked(
     return false;
   }
 
-  // ----------------------------------------------------------
-  // IP is actively blocked
-  // ----------------------------------------------------------
-
+  // Active temporary block
   return true;
 }
 
@@ -335,13 +291,11 @@ export function getBlockedIP(
     normalizeIP(ip);
 
   if (
-    !normalizedIP ||
     normalizedIP === "unknown"
   ) {
     return null;
   }
 
-  // Check expiration first
   if (
     !isBlocked(normalizedIP)
   ) {
@@ -368,7 +322,6 @@ export function getBlockedIP(
 
 export function getBlockedIPs(): BlockedIP[] {
 
-  // Remove expired entries before returning results
   removeExpiredBlocks();
 
   return Array.from(
