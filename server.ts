@@ -16,7 +16,9 @@ import trafficLogger from "./src/middleware/trafficLogger.js";
 // SECURITY SYSTEM
 // ============================================================
 
-import { runSecurityAnalysis } from "./src/security/securityService.js";
+import {
+  runSecurityAnalysis,
+} from "./src/security/securityService.js";
 
 import {
   isIPBlocked,
@@ -27,45 +29,99 @@ import {
 // HELPER — GET CLIENT IP
 // ============================================================
 
-function getClientIP(req: express.Request): string {
-  const forwardedFor = req.headers["x-forwarded-for"];
+function getClientIP(
+  req: express.Request,
+): string {
+
+  const forwardedFor =
+    req.headers["x-forwarded-for"];
 
   let ip: string;
 
+  // ==========================================================
   // AWS ALB / NGINX / PROXY
-  if (typeof forwardedFor === "string") {
-    ip = forwardedFor.split(",")[0].trim();
+  // ==========================================================
+
+  if (
+    typeof forwardedFor ===
+    "string"
+  ) {
+
+    ip =
+      forwardedFor
+        .split(",")[0]
+        .trim();
+
   }
 
-  // Express can sometimes provide an array
-  else if (Array.isArray(forwardedFor)) {
-    ip = forwardedFor[0]?.trim() || "";
+  // ==========================================================
+  // EXPRESS ARRAY
+  // ==========================================================
+
+  else if (
+    Array.isArray(
+      forwardedFor,
+    )
+  ) {
+
+    ip =
+      forwardedFor[0]?.trim() ||
+      "";
+
   }
 
-  // Direct connection
+  // ==========================================================
+  // DIRECT CONNECTION
+  // ==========================================================
+
   else {
+
     ip =
       req.ip ||
       req.socket.remoteAddress ||
       "unknown";
   }
 
-  // Normalize IPv4-mapped IPv6
-  // ::ffff:172.17.0.1 -> 172.17.0.1
-  if (ip.startsWith("::ffff:")) {
-    ip = ip.substring(7);
+  // ==========================================================
+  // NORMALIZE IPV4-MAPPED IPV6
+  // ::ffff:172.17.0.1
+  // ->
+  // 172.17.0.1
+  // ==========================================================
+
+  if (
+    ip.startsWith(
+      "::ffff:",
+    )
+  ) {
+
+    ip =
+      ip.substring(7);
   }
 
-  // Normalize localhost IPv6
-  if (ip === "::1") {
-    ip = "127.0.0.1";
+  // ==========================================================
+  // NORMALIZE LOCALHOST IPV6
+  // ==========================================================
+
+  if (
+    ip === "::1"
+  ) {
+
+    ip =
+      "127.0.0.1";
   }
 
-  // Remove spaces
-  ip = ip.trim();
+  // ==========================================================
+  // REMOVE SPACES
+  // ==========================================================
+
+  ip =
+    ip.trim();
 
   if (!ip) {
-    ip = "unknown";
+
+    ip =
+      "unknown";
   }
 
   return ip;
@@ -77,82 +133,108 @@ function getClientIP(req: express.Request): string {
 
 async function startServer() {
 
-  // ============================================================
+  // ==========================================================
   // MYSQL CONNECTION
-  // ============================================================
+  // ==========================================================
 
   try {
-    const conn = await pool.getConnection();
 
-    console.log("✅ MySQL Connected Successfully");
+    const conn =
+      await pool.getConnection();
+
+    console.log(
+      "✅ MySQL Connected Successfully",
+    );
 
     conn.release();
 
   } catch (err) {
 
-    console.error("❌ MySQL Connection Failed");
+    console.error(
+      "❌ MySQL Connection Failed",
+    );
+
     console.error(err);
 
     process.exit(1);
   }
 
-  // ============================================================
+  // ==========================================================
   // EXPRESS APPLICATION
-  // ============================================================
+  // ==========================================================
 
-  const app = express();
+  const app =
+    express();
 
   const PORT =
-    Number(process.env.PORT) || 3000;
+    Number(
+      process.env.PORT,
+    ) || 3000;
 
   const __filename =
-    fileURLToPath(import.meta.url);
+    fileURLToPath(
+      import.meta.url,
+    );
 
   const __dirname =
-    path.dirname(__filename);
+    path.dirname(
+      __filename,
+    );
 
   // Prevent unused-variable issues
   void __dirname;
 
-  // ============================================================
+  // ==========================================================
   // JWT CONFIGURATION
-  // ============================================================
+  // ==========================================================
 
   const JWT_SECRET =
     process.env.JWT_SECRET ||
     "skillswap-super-secret-key-12345";
 
-  // ============================================================
+  // ==========================================================
   // USER INTERFACE
-  // ============================================================
+  // ==========================================================
 
   interface User {
+
     id: string;
+
     username: string;
+
     passwordHash: string;
   }
 
   const users: User[] = [];
 
-  // ============================================================
+  // ==========================================================
   // SKILL INTERFACE
-  // ============================================================
+  // ==========================================================
 
   interface Skill {
+
     id: string;
+
     authorId: string;
+
     name: string;
+
     offer: string;
+
     category: string;
+
     want: string;
+
     bio: string;
+
     createdAt: number;
+
     authorName?: string;
   }
 
-  // ============================================================
+  // ==========================================================
   // IN-MEMORY DATABASE
-  // ============================================================
+  // ==========================================================
 
   let skills: Skill[] = [];
 
@@ -168,7 +250,8 @@ async function startServer() {
         "utf8",
       );
 
-    skills = JSON.parse(data);
+    skills =
+      JSON.parse(data);
 
     console.log(
       `✅ Loaded ${skills.length} skills`,
@@ -183,42 +266,51 @@ async function startServer() {
     console.error(error);
   }
 
-  // ============================================================
+  // ==========================================================
   // EXPRESS MIDDLEWARE
-  // ============================================================
+  // ==========================================================
 
   app.use(
     express.json(),
   );
 
-  // ============================================================
+  // ==========================================================
   // MORGAN HTTP LOGGING
-  // ============================================================
+  // ==========================================================
 
   app.use(
     morgan("dev"),
   );
 
-  // ============================================================
+  // ==========================================================
   // AUTHENTICATION MIDDLEWARE
-  // ============================================================
+  // ==========================================================
 
   const authenticate = (
+
     req: express.Request,
+
     res: express.Response,
+
     next: express.NextFunction,
+
   ) => {
 
     const authorization =
       req.headers.authorization;
 
     const token =
-      authorization?.split(" ")[1];
+      authorization?.split(
+        " ",
+      )[1];
 
     if (!token) {
 
       return res.status(401).json({
-        error: "Unauthorized",
+
+        error:
+          "Unauthorized",
+
       });
     }
 
@@ -229,11 +321,14 @@ async function startServer() {
           token,
           JWT_SECRET,
         ) as {
+
           id: string;
+
           username: string;
         };
 
-      (req as any).user = payload;
+      (req as any).user =
+        payload;
 
       next();
 
@@ -245,20 +340,34 @@ async function startServer() {
       );
 
       return res.status(401).json({
-        error: "Invalid token",
+
+        error:
+          "Invalid token",
+
       });
     }
   };
 
-  // ============================================================
+  // ==========================================================
   // PHASE 2 — IP BLOCKING MIDDLEWARE
-  // ============================================================
+  // ==========================================================
+
+  // IMPORTANT:
+  // This middleware MUST run before trafficLogger.
+  //
+  // Blocked requests are stopped here.
+  // Normal requests continue to trafficLogger.
+  // ==========================================================
 
   app.use(
+
     (
       req: express.Request,
+
       res: express.Response,
+
       next: express.NextFunction,
+
     ) => {
 
       const ip =
@@ -296,6 +405,7 @@ async function startServer() {
 
             status:
               "BLOCKED",
+
           });
         }
 
@@ -314,20 +424,22 @@ async function startServer() {
     },
   );
 
-  // ============================================================
+  // ==========================================================
   // TRAFFIC LOGGER
-  // ============================================================
+  // ==========================================================
 
   app.use(
     trafficLogger,
   );
 
-  // ============================================================
+  // ==========================================================
   // HEALTH CHECK
-  // ============================================================
+  // ==========================================================
 
   app.get(
+
     "/health",
+
     async (
       req,
       res,
@@ -381,12 +493,14 @@ async function startServer() {
     },
   );
 
-  // ============================================================
+  // ==========================================================
   // ROOT HEALTH / APPLICATION CHECK
-  // ============================================================
+  // ==========================================================
 
   app.get(
+
     "/api/health",
+
     (
       req,
       res,
@@ -407,17 +521,19 @@ async function startServer() {
     },
   );
 
-  // ============================================================
+  // ==========================================================
   // PHASE 3 — SECURITY EVENTS
-  // ============================================================
+  // ==========================================================
 
 
-  // ============================================================
+  // ==========================================================
   // GET ALL SECURITY EVENTS
-  // ============================================================
+  // ==========================================================
 
   app.get(
+
     "/api/security-events",
+
     async (
       req,
       res,
@@ -427,17 +543,29 @@ async function startServer() {
 
         const [rows] =
           await pool.query(`
+
             SELECT
+
               id,
+
               ip_address,
+
               event_type,
+
               severity,
+
               risk_score,
+
               anomaly_score,
+
               action,
+
               status,
+
               risk_reasons,
+
               message,
+
               created_at
 
             FROM security_events
@@ -445,6 +573,7 @@ async function startServer() {
             ORDER BY created_at DESC
 
             LIMIT 100
+
           `);
 
         return res.status(200).json(
@@ -459,23 +588,27 @@ async function startServer() {
         );
 
         return res.status(500).json({
+
           error:
             "Failed to fetch security events",
+
         });
       }
     },
   );
 
 
-  // ============================================================
+  // ==========================================================
   // SECURITY EVENT SUMMARY
   //
   // IMPORTANT:
   // This MUST be BEFORE /api/security-events/:id
-  // ============================================================
+  // ==========================================================
 
   app.get(
+
     "/api/security-events/summary",
+
     async (
       req,
       res,
@@ -485,73 +618,105 @@ async function startServer() {
 
         const [rows]: any =
           await pool.query(`
+
             SELECT
 
               COUNT(*) AS total_events,
 
               COALESCE(
-                SUM(severity = 'CRITICAL'),
+                SUM(
+                  severity = 'CRITICAL'
+                ),
                 0
               ) AS critical_events,
 
               COALESCE(
-                SUM(severity = 'HIGH'),
+                SUM(
+                  severity = 'HIGH'
+                ),
                 0
               ) AS high_events,
 
               COALESCE(
-                SUM(severity = 'MEDIUM'),
+                SUM(
+                  severity = 'MEDIUM'
+                ),
                 0
               ) AS medium_events,
 
               COALESCE(
-                SUM(severity = 'LOW'),
+                SUM(
+                  severity = 'LOW'
+                ),
                 0
               ) AS low_events,
 
               COALESCE(
-                SUM(action = 'BLOCK'),
+                SUM(
+                  action = 'BLOCK'
+                ),
                 0
               ) AS blocked_events,
 
               COALESCE(
-                SUM(action = 'ALERT'),
+                SUM(
+                  action = 'ALERT'
+                ),
                 0
               ) AS alert_events,
 
               COALESCE(
-                SUM(action = 'MONITOR'),
+                SUM(
+                  action = 'MONITOR'
+                ),
                 0
               ) AS monitored_events
 
             FROM security_events
+
           `);
 
         return res.status(200).json({
 
           total_events:
-            Number(rows[0].total_events),
+            Number(
+              rows[0].total_events,
+            ),
 
           critical_events:
-            Number(rows[0].critical_events),
+            Number(
+              rows[0].critical_events,
+            ),
 
           high_events:
-            Number(rows[0].high_events),
+            Number(
+              rows[0].high_events,
+            ),
 
           medium_events:
-            Number(rows[0].medium_events),
+            Number(
+              rows[0].medium_events,
+            ),
 
           low_events:
-            Number(rows[0].low_events),
+            Number(
+              rows[0].low_events,
+            ),
 
           blocked_events:
-            Number(rows[0].blocked_events),
+            Number(
+              rows[0].blocked_events,
+            ),
 
           alert_events:
-            Number(rows[0].alert_events),
+            Number(
+              rows[0].alert_events,
+            ),
 
           monitored_events:
-            Number(rows[0].monitored_events),
+            Number(
+              rows[0].monitored_events,
+            ),
 
         });
 
@@ -563,20 +728,344 @@ async function startServer() {
         );
 
         return res.status(500).json({
+
           error:
             "Failed to fetch security summary",
+
         });
       }
     },
   );
 
 
-  // ============================================================
-  // GET CURRENTLY BLOCKED IPS
-  // ============================================================
+  // ==========================================================
+  // PHASE 3 — COMPLETE SECURITY STATISTICS API
+  //
+  // This endpoint is used by the new Security Dashboard.
+  //
+  // GET:
+  // /api/security/statistics
+  //
+  // Returns:
+  // - Overall statistics
+  // - Severity distribution
+  // - Blocked IP count
+  // - Last 7 days timeline
+  // ==========================================================
 
   app.get(
+
+    "/api/security/statistics",
+
+    async (
+      req,
+      res,
+    ) => {
+
+      try {
+
+        // ======================================================
+        // OVERALL STATISTICS
+        // ======================================================
+
+        const [rows]: any =
+          await pool.query(`
+
+            SELECT
+
+              COUNT(*) AS total_events,
+
+              COALESCE(
+                SUM(
+                  severity = 'CRITICAL'
+                ),
+                0
+              ) AS critical_events,
+
+              COALESCE(
+                SUM(
+                  severity = 'HIGH'
+                ),
+                0
+              ) AS high_events,
+
+              COALESCE(
+                SUM(
+                  severity = 'MEDIUM'
+                ),
+                0
+              ) AS medium_events,
+
+              COALESCE(
+                SUM(
+                  severity = 'LOW'
+                ),
+                0
+              ) AS low_events,
+
+              COALESCE(
+                SUM(
+                  action = 'BLOCK'
+                ),
+                0
+              ) AS blocked_events,
+
+              COALESCE(
+                SUM(
+                  action = 'ALERT'
+                ),
+                0
+              ) AS alert_events,
+
+              COALESCE(
+                SUM(
+                  action = 'MONITOR'
+                ),
+                0
+              ) AS monitored_events
+
+            FROM security_events
+
+          `);
+
+
+        // ======================================================
+        // LAST 7 DAYS EVENT TIMELINE
+        // ======================================================
+
+        const [timelineRows]: any =
+          await pool.query(`
+
+            SELECT
+
+              DATE(created_at) AS date,
+
+              COUNT(*) AS events
+
+            FROM security_events
+
+            WHERE created_at >=
+              DATE_SUB(
+                CURDATE(),
+                INTERVAL 6 DAY
+              )
+
+            GROUP BY
+              DATE(created_at)
+
+            ORDER BY
+              DATE(created_at) ASC
+
+          `);
+
+
+        // ======================================================
+        // SEVERITY DISTRIBUTION
+        // ======================================================
+
+        const [severityRows]: any =
+          await pool.query(`
+
+            SELECT
+
+              severity,
+
+              COUNT(*) AS count
+
+            FROM security_events
+
+            GROUP BY
+              severity
+
+          `);
+
+
+        // ======================================================
+        // CURRENTLY BLOCKED IPS
+        // ======================================================
+
+        const blockedIPs =
+          getBlockedIPs();
+
+
+        // ======================================================
+        // DEFAULT SEVERITY OBJECT
+        // ======================================================
+
+        const severityDistribution: Record<
+          string,
+          number
+        > = {
+
+          CRITICAL:
+            0,
+
+          HIGH:
+            0,
+
+          MEDIUM:
+            0,
+
+          LOW:
+            0,
+
+        };
+
+
+        // ======================================================
+        // FILL SEVERITY DATA
+        // ======================================================
+
+        for (
+          const row of severityRows
+        ) {
+
+          if (
+            row.severity &&
+            Object.prototype.hasOwnProperty.call(
+              severityDistribution,
+              row.severity,
+            )
+          ) {
+
+            severityDistribution[
+              row.severity
+            ] =
+              Number(
+                row.count,
+              );
+          }
+        }
+
+
+        // ======================================================
+        // TIMELINE
+        // ======================================================
+
+        const timeline =
+          timelineRows.map(
+            (
+              row: any,
+            ) => ({
+
+              date:
+                String(
+                  row.date,
+                ),
+
+              events:
+                Number(
+                  row.events,
+                ),
+
+            }),
+          );
+
+
+        // ======================================================
+        // FINAL RESPONSE
+        // ======================================================
+
+        return res.status(200).json({
+
+          success:
+            true,
+
+          // ----------------------------------------------------
+          // OVERALL COUNTERS
+          // ----------------------------------------------------
+
+          total_events:
+            Number(
+              rows[0].total_events,
+            ),
+
+          critical_events:
+            Number(
+              rows[0].critical_events,
+            ),
+
+          high_events:
+            Number(
+              rows[0].high_events,
+            ),
+
+          medium_events:
+            Number(
+              rows[0].medium_events,
+            ),
+
+          low_events:
+            Number(
+              rows[0].low_events,
+            ),
+
+          // ----------------------------------------------------
+          // ACTION COUNTERS
+          // ----------------------------------------------------
+
+          blocked_events:
+            Number(
+              rows[0].blocked_events,
+            ),
+
+          alert_events:
+            Number(
+              rows[0].alert_events,
+            ),
+
+          monitored_events:
+            Number(
+              rows[0].monitored_events,
+            ),
+
+          // ----------------------------------------------------
+          // CURRENT BLOCKED IPs
+          // ----------------------------------------------------
+
+          currently_blocked_ips:
+            blockedIPs.length,
+
+          // ----------------------------------------------------
+          // CHART DATA
+          // ----------------------------------------------------
+
+          severity_distribution:
+            severityDistribution,
+
+          timeline,
+
+        });
+
+      } catch (error) {
+
+        console.error(
+          "❌ Failed to fetch security statistics:",
+          error,
+        );
+
+        return res.status(500).json({
+
+          success:
+            false,
+
+          error:
+            "Failed to fetch security statistics",
+
+        });
+      }
+    },
+  );
+
+
+  // ==========================================================
+  // GET CURRENTLY BLOCKED IPS
+  // ==========================================================
+
+  app.get(
+
     "/api/security/blocked-ips",
+
     (
       req,
       res,
@@ -605,23 +1094,27 @@ async function startServer() {
         );
 
         return res.status(500).json({
+
           error:
             "Failed to fetch blocked IPs",
+
         });
       }
     },
   );
 
 
-  // ============================================================
+  // ==========================================================
   // UPDATE SECURITY EVENT STATUS
   //
   // IMPORTANT:
   // This MUST be BEFORE /api/security-events/:id
-  // ============================================================
+  // ==========================================================
 
   app.patch(
+
     "/api/security-events/:id/status",
+
     async (
       req,
       res,
@@ -634,9 +1127,13 @@ async function startServer() {
         } = req.body;
 
         const allowedStatuses = [
+
           "OPEN",
+
           "INVESTIGATING",
+
           "RESOLVED",
+
         ];
 
         if (
@@ -655,30 +1152,44 @@ async function startServer() {
           });
         }
 
+
         const [result]: any =
           await pool.query(
+
             `
-            UPDATE security_events
 
-            SET status = ?
+              UPDATE security_events
 
-            WHERE id = ?
+              SET status = ?
+
+              WHERE id = ?
+
             `,
+
             [
+
               status,
+
               req.params.id,
+
             ],
+
           );
 
+
         if (
-          result.affectedRows === 0
+          result.affectedRows ===
+          0
         ) {
 
           return res.status(404).json({
+
             error:
               "Security event not found",
+
           });
         }
+
 
         return res.status(200).json({
 
@@ -700,29 +1211,35 @@ async function startServer() {
         );
 
         return res.status(500).json({
+
           error:
             "Failed to update security event",
+
         });
       }
     },
   );
 
 
-  // ============================================================
+  // ==========================================================
   // GET SINGLE SECURITY EVENT
   //
   // IMPORTANT:
   // This dynamic route MUST be AFTER:
   //
   // /summary
+  // /statistics
   // /blocked-ips
   // /:id/status
   //
-  // Otherwise "summary" can be interpreted as an ID.
-  // ============================================================
+  // Otherwise "summary" or "statistics" can be interpreted
+  // as an ID.
+  // ==========================================================
 
   app.get(
+
     "/api/security-events/:id",
+
     async (
       req,
       res,
@@ -732,38 +1249,61 @@ async function startServer() {
 
         const [rows]: any =
           await pool.query(
+
             `
-            SELECT
-              id,
-              ip_address,
-              event_type,
-              severity,
-              risk_score,
-              anomaly_score,
-              action,
-              status,
-              risk_reasons,
-              message,
-              created_at
 
-            FROM security_events
+              SELECT
 
-            WHERE id = ?
+                id,
+
+                ip_address,
+
+                event_type,
+
+                severity,
+
+                risk_score,
+
+                anomaly_score,
+
+                action,
+
+                status,
+
+                risk_reasons,
+
+                message,
+
+                created_at
+
+              FROM security_events
+
+              WHERE id = ?
+
             `,
+
             [
+
               req.params.id,
+
             ],
+
           );
 
+
         if (
-          rows.length === 0
+          rows.length ===
+          0
         ) {
 
           return res.status(404).json({
+
             error:
               "Security event not found",
+
           });
         }
+
 
         return res.status(200).json(
           rows[0],
@@ -777,20 +1317,24 @@ async function startServer() {
         );
 
         return res.status(500).json({
+
           error:
             "Failed to fetch security event",
+
         });
       }
     },
   );
 
 
-  // ============================================================
+  // ==========================================================
   // MANUAL SECURITY ANALYSIS
-  // ============================================================
+  // ==========================================================
 
   app.post(
+
     "/api/security/analyze",
+
     async (
       req,
       res,
@@ -835,12 +1379,14 @@ async function startServer() {
   );
 
 
-  // ============================================================
+  // ==========================================================
   // REGISTER
-  // ============================================================
+  // ==========================================================
 
   app.post(
+
     "/api/register",
+
     (
       req,
       res,
@@ -851,66 +1397,91 @@ async function startServer() {
         password,
       } = req.body;
 
+
       if (
         !username ||
         !password
       ) {
 
         return res.status(400).json({
+
           error:
             "Missing fields",
+
         });
       }
 
+
       const existingUser =
         users.find(
-          (user) =>
+          (
+            user,
+          ) =>
             user.username ===
             username,
         );
 
-      if (existingUser) {
+
+      if (
+        existingUser
+      ) {
 
         return res.status(400).json({
+
           error:
             "Username taken",
+
         });
       }
+
 
       const newUser: User = {
 
         id:
           Math.random()
             .toString(36)
-            .substring(2, 9),
+            .substring(
+              2,
+              9,
+            ),
 
         username,
 
         passwordHash:
           password,
+
       };
+
 
       users.push(
         newUser,
       );
 
+
       const token =
         jwt.sign(
+
           {
+
             id:
               newUser.id,
 
             username:
               newUser.username,
+
           },
 
           JWT_SECRET,
 
           {
+
             expiresIn:
               "24h",
+
           },
+
         );
+
 
       return res.status(201).json({
 
@@ -931,12 +1502,14 @@ async function startServer() {
   );
 
 
-  // ============================================================
+  // ==========================================================
   // LOGIN
-  // ============================================================
+  // ==========================================================
 
   app.post(
+
     "/api/login",
+
     (
       req,
       res,
@@ -947,40 +1520,56 @@ async function startServer() {
         password,
       } = req.body;
 
+
       const user =
         users.find(
+
           (u) =>
+
             u.username ===
               username &&
+
             u.passwordHash ===
               password,
+
         );
+
 
       if (!user) {
 
         return res.status(401).json({
+
           error:
             "Invalid credentials",
+
         });
       }
 
+
       const token =
         jwt.sign(
+
           {
+
             id:
               user.id,
 
             username:
               user.username,
+
           },
 
           JWT_SECRET,
 
           {
+
             expiresIn:
               "24h",
+
           },
+
         );
+
 
       return res.json({
 
@@ -1001,12 +1590,14 @@ async function startServer() {
   );
 
 
-  // ============================================================
+  // ==========================================================
   // GET ALL SKILLS
-  // ============================================================
+  // ==========================================================
 
   app.get(
+
     "/api/skills",
+
     (
       req,
       res,
@@ -1014,7 +1605,10 @@ async function startServer() {
 
       const summarySkills =
         skills.map(
-          (skill) => ({
+
+          (
+            skill,
+          ) => ({
 
             id:
               skill.id,
@@ -1044,7 +1638,9 @@ async function startServer() {
               skill.authorName,
 
           }),
+
         );
+
 
       return res.json(
         summarySkills,
@@ -1053,12 +1649,14 @@ async function startServer() {
   );
 
 
-  // ============================================================
+  // ==========================================================
   // GET SINGLE SKILL
-  // ============================================================
+  // ==========================================================
 
   app.get(
+
     "/api/skills/:id",
+
     (
       req,
       res,
@@ -1066,18 +1664,24 @@ async function startServer() {
 
       const skill =
         skills.find(
+
           (s) =>
             s.id ===
             req.params.id,
+
         );
+
 
       if (!skill) {
 
         return res.status(404).json({
+
           error:
             "Skill not found",
+
         });
       }
+
 
       return res.json(
         skill,
@@ -1086,13 +1690,16 @@ async function startServer() {
   );
 
 
-  // ============================================================
+  // ==========================================================
   // CREATE SKILL
-  // ============================================================
+  // ==========================================================
 
   app.post(
+
     "/api/skills",
+
     authenticate,
+
     (
       req,
       res,
@@ -1106,8 +1713,10 @@ async function startServer() {
         bio,
       } = req.body;
 
+
       const user =
         (req as any).user;
+
 
       if (
         !name ||
@@ -1117,17 +1726,23 @@ async function startServer() {
       ) {
 
         return res.status(400).json({
+
           error:
             "Missing required fields",
+
         });
       }
+
 
       const newSkill: Skill = {
 
         id:
           Math.random()
             .toString(36)
-            .substring(2, 9),
+            .substring(
+              2,
+              9,
+            ),
 
         authorId:
           user.id,
@@ -1146,11 +1761,14 @@ async function startServer() {
 
         createdAt:
           Date.now(),
+
       };
+
 
       skills.unshift(
         newSkill,
       );
+
 
       return res.status(201).json(
         newSkill,
@@ -1159,13 +1777,16 @@ async function startServer() {
   );
 
 
-  // ============================================================
+  // ==========================================================
   // DELETE SKILL
-  // ============================================================
+  // ==========================================================
 
   app.delete(
+
     "/api/skills/:id",
+
     authenticate,
+
     (
       req,
       res,
@@ -1175,50 +1796,67 @@ async function startServer() {
         id,
       } = req.params;
 
+
       const user =
         (req as any).user;
 
+
       const skillIndex =
         skills.findIndex(
+
           (skill) =>
             skill.id ===
             id,
+
         );
 
+
       if (
-        skillIndex === -1
+        skillIndex ===
+        -1
       ) {
 
         return res.status(404).json({
+
           error:
             "Skill not found",
+
         });
       }
 
+
       if (
-        skills[skillIndex].authorId !==
+        skills[
+          skillIndex
+        ].authorId !==
         user.id
       ) {
 
         return res.status(403).json({
+
           error:
             "Forbidden: You can only delete your own skills",
+
         });
       }
+
 
       skills.splice(
         skillIndex,
         1,
       );
 
-      return res.status(204).send();
+
+      return res
+        .status(204)
+        .send();
     },
   );
 
 
-  // ============================================================
+  // ==========================================================
   // VITE DEVELOPMENT MODE
-  // ============================================================
+  // ==========================================================
 
   if (
     process.env.NODE_ENV !==
@@ -1240,64 +1878,83 @@ async function startServer() {
 
       });
 
+
     app.use(
       vite.middlewares,
     );
-
   }
 
-  // ============================================================
+
+  // ==========================================================
   // PRODUCTION MODE
-  // ============================================================
+  // ==========================================================
 
   else {
 
     const distPath =
       path.join(
+
         process.cwd(),
+
         "dist",
+
       );
 
+
     console.log(
+
       `📦 Serving production files from: ${distPath}`,
+
     );
 
+
     app.use(
+
       express.static(
         distPath,
       ),
+
     );
 
-    // ==========================================================
+
+    // ========================================================
     // SPA FALLBACK
     //
     // Express 5 does not accept "*" in the same way as older
     // versions. Use a regex instead.
-    // ==========================================================
+    // ========================================================
 
     app.get(
+
       /^(?!\/api).*/,
+
       (
         req,
         res,
       ) => {
 
         res.sendFile(
+
           path.join(
+
             distPath,
+
             "index.html",
+
           ),
+
         );
       },
     );
   }
 
 
-  // ============================================================
+  // ==========================================================
   // 404 HANDLER
-  // ============================================================
+  // ==========================================================
 
   app.use(
+
     (
       req,
       res,
@@ -1320,23 +1977,31 @@ async function startServer() {
         });
       }
 
-      return res.status(404).send(
-        "Not Found",
-      );
+
+      return res
+        .status(404)
+        .send(
+          "Not Found",
+        );
     },
   );
 
 
-  // ============================================================
+  // ==========================================================
   // GLOBAL ERROR HANDLER
-  // ============================================================
+  // ==========================================================
 
   app.use(
+
     (
       error: any,
+
       req: express.Request,
+
       res: express.Response,
+
       next: express.NextFunction,
+
     ) => {
 
       console.error(
@@ -1344,9 +2009,16 @@ async function startServer() {
         error,
       );
 
-      if (res.headersSent) {
-        return next(error);
+
+      if (
+        res.headersSent
+      ) {
+
+        return next(
+          error,
+        );
       }
+
 
       return res.status(500).json({
 
@@ -1358,58 +2030,78 @@ async function startServer() {
   );
 
 
-  // ============================================================
+  // ==========================================================
   // START SERVER
-  // ============================================================
+  // ==========================================================
 
   const server =
     app.listen(
+
       PORT,
+
       "0.0.0.0",
+
       () => {
 
         console.log(
+
           `🚀 Server running on http://0.0.0.0:${PORT}`,
+
         );
 
+
         console.log(
+
           `🌐 Local access: http://localhost:${PORT}`,
+
         );
+
 
         console.log(
           "🔐 Automatic security analysis enabled",
         );
 
+
         console.log(
           "🛡️ IP blocking middleware enabled",
         );
+
 
         console.log(
           "📊 Traffic logging enabled",
         );
 
+
         console.log(
           "❤️ Health check: /health",
         );
 
-        // ======================================================
+
+        // ====================================================
         // INITIAL SECURITY ANALYSIS
-        // ======================================================
+        // ====================================================
 
         console.log(
           "\n🔐 Running initial security analysis...",
         );
 
+
         runSecurityAnalysis()
-          .then(() => {
 
-            console.log(
-              "✅ Initial security analysis completed",
-            );
+          .then(
+            () => {
 
-          })
+              console.log(
+                "✅ Initial security analysis completed",
+              );
+
+            },
+          )
+
           .catch(
-            (error) => {
+            (
+              error,
+            ) => {
 
               console.error(
                 "❌ Initial security analysis failed:",
@@ -1419,26 +2111,32 @@ async function startServer() {
             },
           );
 
-        // ======================================================
+
+        // ====================================================
         // AUTOMATIC SECURITY ANALYSIS
-        // ======================================================
+        // ====================================================
 
         setInterval(
+
           async () => {
 
             console.log(
               "\n🔐 Running automatic security analysis...",
             );
 
+
             try {
 
               await runSecurityAnalysis();
+
 
               console.log(
                 "✅ Automatic security analysis completed",
               );
 
-            } catch (error) {
+            } catch (
+              error
+            ) {
 
               console.error(
                 "❌ Automatic security analysis failed:",
@@ -1449,23 +2147,29 @@ async function startServer() {
           },
 
           5 * 60 * 1000,
+
         );
       },
     );
 
 
-  // ============================================================
+  // ==========================================================
   // SERVER ERROR HANDLER
-  // ============================================================
+  // ==========================================================
 
   server.on(
+
     "error",
-    (error: NodeJS.ErrnoException) => {
+
+    (
+      error: NodeJS.ErrnoException,
+    ) => {
 
       console.error(
         "❌ Server error:",
         error,
       );
+
 
       if (
         error.code ===
@@ -1475,6 +2179,7 @@ async function startServer() {
         console.error(
           `❌ Port ${PORT} is already in use.`,
         );
+
 
         process.exit(1);
       }
@@ -1488,13 +2193,18 @@ async function startServer() {
 // ============================================================
 
 startServer().catch(
-  (error) => {
+
+  (
+    error,
+  ) => {
 
     console.error(
       "❌ Failed to start server:",
       error,
     );
 
+
     process.exit(1);
   },
+
 );
