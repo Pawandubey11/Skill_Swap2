@@ -19,7 +19,7 @@ import {
 } from "./blockManager.js";
 
 // ============================================================
-// SECURITY ACTION TYPES
+// SECURITY ACTION
 // ============================================================
 
 export type SecurityAction =
@@ -28,7 +28,7 @@ export type SecurityAction =
   | "BLOCK";
 
 // ============================================================
-// BLOCK CONFIGURATION
+// DEFAULT BLOCK DURATION
 // ============================================================
 
 const DEFAULT_BLOCK_DURATION =
@@ -37,15 +37,28 @@ const DEFAULT_BLOCK_DURATION =
 // 15 minutes
 
 // ============================================================
-// SECURITY ENFORCEMENT RESULT
+// ENFORCEMENT RESULT
 // ============================================================
 
-export interface SecurityEnforcementResult {
-  ip: string;
+export interface EnforcementResult {
+
+  ip_address: string;
+
   action: SecurityAction;
+
+  status:
+    | "OPEN"
+    | "BLOCKED";
+
   blocked: boolean;
+
   message: string;
+
   reason: string;
+
+  expires_at:
+    | string
+    | null;
 }
 
 // ============================================================
@@ -57,7 +70,7 @@ export function enforceSecurityAction(
   action: SecurityAction,
   reason: string = "Security violation",
   durationMs: number = DEFAULT_BLOCK_DURATION,
-): SecurityEnforcementResult {
+): EnforcementResult {
 
   const normalizedIP =
     normalizeIP(ip);
@@ -80,11 +93,14 @@ export function enforceSecurityAction(
 
     return {
 
-      ip:
+      ip_address:
         normalizedIP,
 
       action:
         "MONITOR",
+
+      status:
+        "OPEN",
 
       blocked:
         false,
@@ -93,6 +109,9 @@ export function enforceSecurityAction(
         `IP ${normalizedIP} is being monitored`,
 
       reason,
+
+      expires_at:
+        null,
     };
   }
 
@@ -114,11 +133,14 @@ export function enforceSecurityAction(
 
     return {
 
-      ip:
+      ip_address:
         normalizedIP,
 
       action:
         "ALERT",
+
+      status:
+        "OPEN",
 
       blocked:
         false,
@@ -127,6 +149,9 @@ export function enforceSecurityAction(
         `Security alert generated for ${normalizedIP}`,
 
       reason,
+
+      expires_at:
+        null,
     };
   }
 
@@ -144,17 +169,25 @@ export function enforceSecurityAction(
       reason,
     );
 
+    const expiresAt =
+      new Date(
+        Date.now() + durationMs,
+      ).toISOString();
+
     console.log(
       `🚫 BLOCKED: ${normalizedIP}`,
     );
 
     return {
 
-      ip:
+      ip_address:
         normalizedIP,
 
       action:
         "BLOCK",
+
+      status:
+        "BLOCKED",
 
       blocked:
         true,
@@ -163,6 +196,9 @@ export function enforceSecurityAction(
         `IP ${normalizedIP} has been blocked`,
 
       reason,
+
+      expires_at:
+        expiresAt,
     };
   }
 
@@ -172,11 +208,14 @@ export function enforceSecurityAction(
 
   return {
 
-    ip:
+    ip_address:
       normalizedIP,
 
     action:
       "MONITOR",
+
+    status:
+      "OPEN",
 
     blocked:
       false,
@@ -185,35 +224,44 @@ export function enforceSecurityAction(
       `IP ${normalizedIP} is being monitored`,
 
     reason,
+
+    expires_at:
+      null,
   };
 }
 
 // ============================================================
 // SECURITY RESPONSE
 // ============================================================
-//
-// IMPORTANT:
-//
-// securityService.ts is currently importing:
-//
-// enforceSecurityResponse
-//
-// Therefore this function MUST exist and be exported.
-//
-// ============================================================
 
 export function enforceSecurityResponse(
-  ip: string,
-  action: SecurityAction,
-  reason: string = "Security violation",
-  durationMs: number = DEFAULT_BLOCK_DURATION,
-): SecurityEnforcementResult {
+  response: {
+    ip_address: string;
+
+    action:
+      | "MONITOR"
+      | "ALERT"
+      | "BLOCK";
+
+    message?: string;
+
+    risk_score?: number;
+
+    risk_level?: string;
+  },
+): EnforcementResult {
 
   return enforceSecurityAction(
-    ip,
-    action,
-    reason,
-    durationMs,
+
+    response.ip_address,
+
+    response.action,
+
+    response.message ||
+      "Security violation",
+
+    DEFAULT_BLOCK_DURATION,
+
   );
 }
 
@@ -224,14 +272,20 @@ export function enforceSecurityResponse(
 export function enforceBlock(
   ip: string,
   reason: string = "Security violation",
-  durationMs: number = DEFAULT_BLOCK_DURATION,
-): SecurityEnforcementResult {
+  durationMs: number =
+    DEFAULT_BLOCK_DURATION,
+): EnforcementResult {
 
   return enforceSecurityAction(
+
     ip,
+
     "BLOCK",
+
     reason,
+
     durationMs,
+
   );
 }
 
@@ -278,18 +332,11 @@ export function isIPBlocked(
 export function getBlockedIPsList() {
 
   return getBlockedIPs();
+
 }
 
 // ============================================================
 // BACKWARD COMPATIBILITY
-// ============================================================
-//
-// server.ts currently imports:
-//
-// getBlockedIPs
-//
-// Therefore export it directly.
-//
 // ============================================================
 
 export {
