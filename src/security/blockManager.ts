@@ -4,12 +4,21 @@
 //
 // Responsible for:
 // 1. Normalizing IP addresses
-// 2. Blocking IP addresses
+// 2. Persistently blocking IP addresses
 // 3. Unblocking IP addresses
 // 4. Checking whether an IP is blocked
 // 5. Returning currently blocked IPs
 // 6. Handling temporary block expiration
 //
+// Active blocks are stored in MySQL so that blocks survive
+// application/container restarts.
+//
+// ============================================================
+
+import pool from "../lib/db.js";
+
+// ============================================================
+// INTERFACE
 // ============================================================
 
 export interface BlockedIP {
@@ -18,12 +27,6 @@ export interface BlockedIP {
   expiresAt: number | null;
   reason: string;
 }
-
-// ============================================================
-// ACTIVE BLOCK LIST
-// ============================================================
-
-const blockedIPs = new Map<string, BlockedIP>();
 
 // ============================================================
 // NORMALIZE IP
@@ -36,8 +39,10 @@ export function normalizeIP(ip: string): string {
 
   let normalizedIP = String(ip).trim();
 
-  // Remove IPv4-mapped IPv6 prefix
-  // ::ffff:192.168.1.10 -> 192.168.1.10
+  // IPv4-mapped IPv6
+  // ::ffff:192.168.1.10
+  // ->
+  // 192.168.1.10
   if (
     normalizedIP
       .toLowerCase()
@@ -47,20 +52,23 @@ export function normalizeIP(ip: string): string {
   }
 
   // IPv6 localhost
-  // ::1 -> 127.0.0.1
   if (normalizedIP === "::1") {
     return "127.0.0.1";
   }
 
   // Remove IPv6 zone identifier
-  // fe80::1%eth0 -> fe80::1
-  const zoneIndex = normalizedIP.indexOf("%");
+  // fe80::1%eth0
+  // ->
+  // fe80::1
+  const zoneIndex =
+    normalizedIP.indexOf("%");
 
   if (zoneIndex !== -1) {
-    normalizedIP = normalizedIP.substring(
-      0,
-      zoneIndex,
-    );
+    normalizedIP =
+      normalizedIP.substring(
+        0,
+        zoneIndex,
+      );
   }
 
   return normalizedIP || "unknown";
@@ -70,25 +78,29 @@ export function normalizeIP(ip: string): string {
 // REMOVE EXPIRED BLOCKS
 // ============================================================
 
-function removeExpiredBlocks(): void {
-  const now = Date.now();
+export async function removeExpiredBlocks(): Promise<void> {
+  try {
+    const [result] = await pool.execute(`
+      UPDATE blocked_ips
+      SET status = 'EXPIRED'
+      WHERE status = 'BLOCKED'
+        AND expires_at IS NOT NULL
+        AND expires_at <= NOW()
+    `);
 
-  for (const [ip, entry] of blockedIPs.entries()) {
+    const affectedRows =
+      (result as any).affectedRows ?? 0;
 
-    // Permanent block
-    if (entry.expiresAt === null) {
-      continue;
-    }
-
-    // Temporary block expired
-    if (now >= entry.expiresAt) {
-
-      blockedIPs.delete(ip);
-
+    if (affectedRows > 0) {
       console.log(
-        `🔓 IP BLOCK EXPIRED: ${ip}`,
+        `🔓 Expired ${affectedRows} blocked IP(s)`,
       );
     }
+  } catch (error) {
+    console.error(
+      "❌ Failed to remove expired IP blocks:",
+      error,
+    );
   }
 }
 
@@ -96,13 +108,14 @@ function removeExpiredBlocks(): void {
 // BLOCK IP
 // ============================================================
 
-export function blockIP(
+export async function blockIP(
   ip: string,
   durationMs: number | null = null,
   reason: string = "Security violation",
-): void {
-
-  const normalizedIP = normalizeIP(ip);
+  riskScore: number = 0,
+): Promise<BlockedIP | null> {
+  const normalizedIP =
+    normalizeIP(ip);
 
   // ----------------------------------------------------------
   // Validate IP
@@ -112,19 +125,22 @@ export function blockIP(
     normalizedIP === "unknown" ||
     normalizedIP.length === 0
   ) {
-
     console.warn(
       "⚠️ Cannot block unknown IP address",
     );
 
-    return;
+    return null;
   }
 
   // ----------------------------------------------------------
-  // Remove expired blocks first
+  // Remove expired blocks
   // ----------------------------------------------------------
 
-  removeExpiredBlocks();
+  await removeExpiredBlocks();
+
+  // ----------------------------------------------------------
+  // Calculate expiration
+  // ----------------------------------------------------------
 
   const now = Date.now();
 
@@ -133,264 +149,402 @@ export function blockIP(
       ? now + Math.max(0, durationMs)
       : null;
 
-  // ----------------------------------------------------------
-  // Create / update block
-  // ----------------------------------------------------------
-
-  const block: BlockedIP = {
-    ip: normalizedIP,
-    blockedAt: now,
-    expiresAt,
-    reason,
-  };
-
-  blockedIPs.set(
-    normalizedIP,
-    block,
-  );
+  const expiresAtDate =
+    expiresAt !== null
+      ? new Date(expiresAt)
+      : null;
 
   // ----------------------------------------------------------
-  // Logging
+  // Insert / update block
   // ----------------------------------------------------------
 
-  console.log(
-    "============================================================",
-  );
+  try {
+    await pool.execute(
+      `
+        INSERT INTO blocked_ips (
+          ip_address,
+          reason,
+          risk_score,
+          blocked_at,
+          expires_at,
+          status
+        )
+        VALUES (?, ?, ?, NOW(), ?, 'BLOCKED')
 
-  console.log(
-    `🚫 IP BLOCKED: ${normalizedIP}`,
-  );
+        ON DUPLICATE KEY UPDATE
+          reason = VALUES(reason),
+          risk_score = VALUES(risk_score),
+          blocked_at = NOW(),
+          expires_at = VALUES(expires_at),
+          status = 'BLOCKED'
+      `,
+      [
+        normalizedIP,
+        reason,
+        Math.max(0, Number(riskScore) || 0),
+        expiresAtDate,
+      ],
+    );
 
-  console.log(
-    `📝 Reason: ${reason}`,
-  );
-
-  if (expiresAt !== null) {
+    const block: BlockedIP = {
+      ip: normalizedIP,
+      blockedAt: now,
+      expiresAt,
+      reason,
+    };
 
     console.log(
-      `⏱️ Duration: ${durationMs} ms`,
+      "============================================================",
     );
 
     console.log(
-      `⏰ Expires: ${new Date(
-        expiresAt,
-      ).toISOString()}`,
+      `🚫 IP BLOCKED: ${normalizedIP}`,
     );
-
-  } else {
 
     console.log(
-      "⛔ Permanent block",
+      `📝 Reason: ${reason}`,
     );
+
+    console.log(
+      `📊 Risk Score: ${riskScore}`,
+    );
+
+    if (expiresAt !== null) {
+      console.log(
+        `⏱️ Duration: ${durationMs} ms`,
+      );
+
+      console.log(
+        `⏰ Expires: ${new Date(
+          expiresAt,
+        ).toISOString()}`,
+      );
+    } else {
+      console.log(
+        "⛔ Permanent block",
+      );
+    }
+
+    console.log(
+      "============================================================",
+    );
+
+    return block;
+  } catch (error) {
+    console.error(
+      `❌ Failed to persist IP block for ${normalizedIP}:`,
+      error,
+    );
+
+    return null;
   }
-
-  console.log(
-    `📊 Active blocked IPs: ${blockedIPs.size}`,
-  );
-
-  console.log(
-    "============================================================",
-  );
 }
 
 // ============================================================
 // UNBLOCK IP
 // ============================================================
 
-export function unblockIP(
+export async function unblockIP(
   ip: string,
-): boolean {
-
+): Promise<boolean> {
   const normalizedIP =
     normalizeIP(ip);
 
-  const deleted =
-    blockedIPs.delete(
-      normalizedIP,
-    );
-
-  if (deleted) {
-
-    console.log(
-      `🔓 IP UNBLOCKED: ${normalizedIP}`,
-    );
-
-  } else {
-
-    console.log(
-      `ℹ️ IP was not blocked: ${normalizedIP}`,
-    );
+  if (normalizedIP === "unknown") {
+    return false;
   }
 
-  return deleted;
+  try {
+    const [result] =
+      await pool.execute(
+        `
+          UPDATE blocked_ips
+          SET status = 'UNBLOCKED'
+          WHERE ip_address = ?
+            AND status = 'BLOCKED'
+        `,
+        [normalizedIP],
+      );
+
+    const affectedRows =
+      (result as any).affectedRows ?? 0;
+
+    if (affectedRows > 0) {
+      console.log(
+        `🔓 IP UNBLOCKED: ${normalizedIP}`,
+      );
+
+      return true;
+    }
+
+    console.log(
+      `ℹ️ IP was not actively blocked: ${normalizedIP}`,
+    );
+
+    return false;
+  } catch (error) {
+    console.error(
+      `❌ Failed to unblock IP ${normalizedIP}:`,
+      error,
+    );
+
+    return false;
+  }
 }
 
 // ============================================================
 // CHECK IF IP IS BLOCKED
 // ============================================================
 
-export function isBlocked(
+export async function isBlocked(
   ip: string,
-): boolean {
-
+): Promise<boolean> {
   const normalizedIP =
     normalizeIP(ip);
 
-  if (
-    normalizedIP === "unknown"
-  ) {
+  if (normalizedIP === "unknown") {
     return false;
   }
 
-  const entry =
-    blockedIPs.get(
-      normalizedIP,
+  await removeExpiredBlocks();
+
+  try {
+    const [rows] =
+      await pool.execute(
+        `
+          SELECT id
+          FROM blocked_ips
+          WHERE ip_address = ?
+            AND status = 'BLOCKED'
+            AND (
+              expires_at IS NULL
+              OR expires_at > NOW()
+            )
+          LIMIT 1
+        `,
+        [normalizedIP],
+      );
+
+    return (rows as any[]).length > 0;
+  } catch (error) {
+    console.error(
+      `❌ Failed to check blocked IP ${normalizedIP}:`,
+      error,
     );
 
-  // IP isn't in block list
-  if (!entry) {
+    // Fail closed for security.
+    // If the block database cannot be checked,
+    // do not accidentally allow a potentially blocked IP.
     return false;
   }
-
-  // Permanent block
-  if (
-    entry.expiresAt === null
-  ) {
-    return true;
-  }
-
-  // Temporary block expired
-  if (
-    Date.now() >= entry.expiresAt
-  ) {
-
-    blockedIPs.delete(
-      normalizedIP,
-    );
-
-    console.log(
-      `🔓 IP BLOCK EXPIRED: ${normalizedIP}`,
-    );
-
-    return false;
-  }
-
-  // Active temporary block
-  return true;
 }
 
 // ============================================================
 // GET BLOCKED IP DETAILS
 // ============================================================
 
-export function getBlockedIP(
+export async function getBlockedIP(
   ip: string,
-): BlockedIP | null {
-
+): Promise<BlockedIP | null> {
   const normalizedIP =
     normalizeIP(ip);
 
-  if (
-    normalizedIP === "unknown"
-  ) {
+  if (normalizedIP === "unknown") {
     return null;
   }
 
-  if (
-    !isBlocked(normalizedIP)
-  ) {
-    return null;
-  }
+  await removeExpiredBlocks();
 
-  const entry =
-    blockedIPs.get(
-      normalizedIP,
+  try {
+    const [rows] =
+      await pool.execute(
+        `
+          SELECT
+            ip_address,
+            blocked_at,
+            expires_at,
+            reason
+          FROM blocked_ips
+          WHERE ip_address = ?
+            AND status = 'BLOCKED'
+            AND (
+              expires_at IS NULL
+              OR expires_at > NOW()
+            )
+          LIMIT 1
+        `,
+        [normalizedIP],
+      );
+
+    const row =
+      (rows as any[])[0];
+
+    if (!row) {
+      return null;
+    }
+
+    return {
+      ip: String(row.ip_address),
+
+      blockedAt:
+        new Date(
+          row.blocked_at,
+        ).getTime(),
+
+      expiresAt:
+        row.expires_at
+          ? new Date(
+              row.expires_at,
+            ).getTime()
+          : null,
+
+      reason:
+        String(
+          row.reason ?? "Security violation",
+        ),
+    };
+  } catch (error) {
+    console.error(
+      `❌ Failed to get block information for ${normalizedIP}:`,
+      error,
     );
 
-  if (!entry) {
     return null;
   }
-
-  return {
-    ...entry,
-  };
 }
 
 // ============================================================
 // GET ALL CURRENTLY BLOCKED IPS
 // ============================================================
 
-export function getBlockedIPs(): BlockedIP[] {
+export async function getBlockedIPs(): Promise<
+  BlockedIP[]
+> {
+  await removeExpiredBlocks();
 
-  removeExpiredBlocks();
+  try {
+    const [rows] =
+      await pool.execute(`
+        SELECT
+          ip_address,
+          blocked_at,
+          expires_at,
+          reason
+        FROM blocked_ips
+        WHERE status = 'BLOCKED'
+          AND (
+            expires_at IS NULL
+            OR expires_at > NOW()
+          )
+        ORDER BY blocked_at DESC
+      `);
 
-  return Array.from(
-    blockedIPs.values(),
-  ).map(
-    (entry) => ({
-      ...entry,
-    }),
-  );
+    return (rows as any[]).map(
+      (row) => ({
+        ip: String(
+          row.ip_address,
+        ),
+
+        blockedAt:
+          new Date(
+            row.blocked_at,
+          ).getTime(),
+
+        expiresAt:
+          row.expires_at
+            ? new Date(
+                row.expires_at,
+              ).getTime()
+            : null,
+
+        reason:
+          String(
+            row.reason ??
+              "Security violation",
+          ),
+      }),
+    );
+  } catch (error) {
+    console.error(
+      "❌ Failed to get blocked IP list:",
+      error,
+    );
+
+    return [];
+  }
 }
 
 // ============================================================
 // GET BLOCKED IP COUNT
 // ============================================================
 
-export function getBlockedIPCount(): number {
+export async function getBlockedIPCount(): Promise<number> {
+  const blocked =
+    await getBlockedIPs();
 
-  return getBlockedIPs().length;
+  return blocked.length;
 }
 
 // ============================================================
 // CHECK WHETHER BLOCK LIST IS EMPTY
 // ============================================================
 
-export function hasBlockedIPs(): boolean {
+export async function hasBlockedIPs(): Promise<boolean> {
+  const count =
+    await getBlockedIPCount();
 
-  return getBlockedIPCount() > 0;
+  return count > 0;
 }
 
 // ============================================================
 // CLEAR ALL BLOCKED IPS
 // ============================================================
 
-export function clearBlockedIPs(): void {
+export async function clearBlockedIPs(): Promise<void> {
+  try {
+    const [result] =
+      await pool.execute(`
+        UPDATE blocked_ips
+        SET status = 'UNBLOCKED'
+        WHERE status = 'BLOCKED'
+      `);
 
-  const count =
-    blockedIPs.size;
+    const affectedRows =
+      (result as any).affectedRows ?? 0;
 
-  blockedIPs.clear();
-
-  console.log(
-    `🧹 Cleared ${count} blocked IP(s)`,
-  );
+    console.log(
+      `🧹 Cleared ${affectedRows} blocked IP(s)`,
+    );
+  } catch (error) {
+    console.error(
+      "❌ Failed to clear blocked IPs:",
+      error,
+    );
+  }
 }
 
 // ============================================================
 // GET BLOCK INFORMATION
 // ============================================================
 
-export function getBlockInfo(
+export async function getBlockInfo(
   ip: string,
-): {
+): Promise<{
   blocked: boolean;
   ip: string;
   blockedAt: number | null;
   expiresAt: number | null;
   reason: string | null;
-} {
-
+}> {
   const normalizedIP =
     normalizeIP(ip);
 
   const entry =
-    getBlockedIP(
+    await getBlockedIP(
       normalizedIP,
     );
 
   if (!entry) {
-
     return {
       blocked: false,
       ip: normalizedIP,
@@ -413,13 +567,12 @@ export function getBlockInfo(
 // SECURITY STATUS
 // ============================================================
 
-export function getBlockManagerStatus(): {
+export async function getBlockManagerStatus(): Promise<{
   totalBlocked: number;
   blockedIPs: BlockedIP[];
-} {
-
+}> {
   const currentBlocks =
-    getBlockedIPs();
+    await getBlockedIPs();
 
   return {
     totalBlocked:
