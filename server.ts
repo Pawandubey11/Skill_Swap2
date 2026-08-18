@@ -59,6 +59,7 @@ function getClientIP(req: express.Request): string {
 
   // ----------------------------------------------------------
   // IPV4 MAPPED IPV6
+  //
   // ::ffff:172.17.0.1
   // ->
   // 172.17.0.1
@@ -278,6 +279,31 @@ async function startServer() {
 
   // ==========================================================
   // PHASE 2/3 — IP ENFORCEMENT
+  //
+  // HEALTH CHECK EXCEPTION
+  //
+  // Docker and Jenkins use:
+  //
+  // GET /health
+  //
+  // Docker networking can make the request appear to come
+  // from an internal bridge IP such as:
+  //
+  // 172.17.0.1
+  //
+  // The health endpoint must remain available so that
+  // Jenkins/Docker can determine whether the application
+  // is alive.
+  //
+  // IMPORTANT:
+  //
+  // trafficLogger is still executed BEFORE this middleware.
+  //
+  // Therefore /health is still logged.
+  //
+  // Only GET /health bypasses IP enforcement.
+  //
+  // Normal application requests remain protected.
   // ==========================================================
 
   app.use(
@@ -286,12 +312,41 @@ async function startServer() {
       res: express.Response,
       next: express.NextFunction,
     ) => {
+      // ------------------------------------------------------
+      // HEALTH CHECK BYPASS
+      //
+      // Only:
+      //
+      // GET /health
+      //
+      // is allowed to bypass IP blocking.
+      // ------------------------------------------------------
+
+      if (
+        req.method === "GET" &&
+        req.path === "/health"
+      ) {
+        console.log(
+          `❤️ HEALTH CHECK BYPASS: ${req.method} ${req.path}`,
+        );
+
+        return next();
+      }
+
+      // ------------------------------------------------------
+      // GET CLIENT IP
+      // ------------------------------------------------------
+
       const ip =
         getClientIP(req);
 
       console.log(
         `🔎 IP CHECK: ${ip} ${req.method} ${req.path}`,
       );
+
+      // ------------------------------------------------------
+      // CHECK IP BLOCK STATUS
+      // ------------------------------------------------------
 
       try {
         const blocked =
@@ -385,6 +440,12 @@ async function startServer() {
 
   // ==========================================================
   // HEALTH CHECK
+  //
+  // This route is protected by the middleware ordering above,
+  // except GET /health is intentionally allowed through the
+  // health-check bypass.
+  //
+  // The database is still checked here.
   // ==========================================================
 
   app.get(
