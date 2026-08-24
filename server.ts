@@ -22,6 +22,9 @@ import {
   enforceUnblock,
 } from "./src/security/enforcementEngine.js";
 
+import { extractFeatures } from "./src/security/featureExtractor.js";
+import { getIsolationForestInstance } from "./src/security/isolationForest.js";
+
 // ============================================================
 // CLIENT IP DETECTION
 // ============================================================
@@ -1084,6 +1087,41 @@ async function startServer() {
         return res.status(500).json({
           success: false,
           error: "Failed to unblock IP address",
+        });
+      }
+    },
+  );
+
+  app.get(
+    "/api/security/model-evaluation",
+    async (req, res) => {
+      try {
+        const features = await extractFeatures();
+        const forest = getIsolationForestInstance();
+
+        const dataset = features.map((f) => ({
+          ip_address: f.ip_address,
+          features: [
+            f.request_count,
+            f.unique_endpoints,
+            f.unique_methods,
+            f.error_count,
+            f.avg_response_time,
+            f.max_response_time,
+          ],
+        }));
+
+        const evaluation = forest.evaluateModel(dataset);
+
+        return res.status(200).json({
+          success: true,
+          evaluation,
+        });
+      } catch (error) {
+        console.error("❌ Failed to evaluate security model:", error);
+        return res.status(500).json({
+          success: false,
+          error: "Failed to evaluate security model",
         });
       }
     },

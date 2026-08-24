@@ -20,7 +20,12 @@ import {
   XCircle,
   Eye,
   Check,
-  Info
+  Info,
+  Cpu,
+  GitBranch,
+  BarChart2,
+  TrendingUp,
+  Award
 } from "lucide-react";
 
 // ============================================================
@@ -72,10 +77,25 @@ interface SecurityStatistics {
   timeline: TimelineItem[];
 }
 
+interface ModelEvaluationMetrics {
+  algorithm: string;
+  num_trees: number;
+  subsample_size: number;
+  total_samples_evaluated: number;
+  anomalies_detected: number;
+  contamination_rate: number;
+  avg_path_length: number;
+  mean_anomaly_score: number;
+  feature_importance: Record<string, number>;
+  model_status: string;
+  evaluated_at: string;
+}
+
 export default function SecurityDashboard() {
   const [events, setEvents] = useState<SecurityEvent[]>([]);
   const [statistics, setStatistics] = useState<SecurityStatistics | null>(null);
   const [blockedIPs, setBlockedIPs] = useState<BlockedIP[]>([]);
+  const [modelEvaluation, setModelEvaluation] = useState<ModelEvaluationMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
   const [unblockingIp, setUnblockingIp] = useState<string | null>(null);
@@ -128,11 +148,29 @@ export default function SecurityDashboard() {
     }
   };
 
+  const fetchModelEvaluation = async () => {
+    try {
+      const response = await fetch("/api/security/model-evaluation");
+      if (!response.ok) throw new Error("Failed to fetch ML model evaluation");
+      const data = await response.json();
+      if (data.success && data.evaluation) {
+        setModelEvaluation(data.evaluation);
+      }
+    } catch (err) {
+      console.error("Error fetching ML model evaluation:", err);
+    }
+  };
+
   const fetchDashboard = async () => {
     try {
       setLoading(true);
       setError("");
-      await Promise.all([fetchEvents(), fetchStatistics(), fetchBlockedIPs()]);
+      await Promise.all([
+        fetchEvents(),
+        fetchStatistics(),
+        fetchBlockedIPs(),
+        fetchModelEvaluation(),
+      ]);
     } finally {
       setLoading(false);
     }
@@ -145,11 +183,11 @@ export default function SecurityDashboard() {
       setSuccessMessage("");
       const response = await fetch("/api/security/analyze", {
         method: "POST",
-        headers: { "Content-Type": "application/json" }
+        headers: { "Content-Type": "application/json" },
       });
       if (!response.ok) throw new Error("Security analysis failed");
       await response.json();
-      setSuccessMessage("Security analysis completed successfully!");
+      setSuccessMessage("Isolation Forest Security Analysis completed!");
       await fetchDashboard();
       setTimeout(() => setSuccessMessage(""), 4000);
     } catch (err) {
@@ -168,7 +206,7 @@ export default function SecurityDashboard() {
       const response = await fetch("/api/security/unblock", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ip_address: ipAddress })
+        body: JSON.stringify({ ip_address: ipAddress }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || data.message || "Failed to unblock IP");
@@ -190,12 +228,12 @@ export default function SecurityDashboard() {
       const response = await fetch(`/api/security-events/${eventId}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: newStatus })
+        body: JSON.stringify({ status: newStatus }),
       });
       if (!response.ok) throw new Error("Failed to update status");
 
       setEvents((prev) =>
-        prev.map((evt) => (evt.id === eventId ? { ...evt, status: newStatus } : evt))
+        prev.map((evt) => (evt.id === eventId ? { ...evt, status: newStatus } : evt)),
       );
     } catch (err) {
       console.error("Failed to update status:", err);
@@ -260,11 +298,11 @@ export default function SecurityDashboard() {
               {/* Status Badge */}
               <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                Real-Time Protection Active
+                Isolation Forest ML Engine Active
               </div>
             </div>
             <p className="text-slate-400 text-sm md:text-base max-w-2xl">
-              Continuous threat detection, automated IP enforcement, anomaly analytics, and real-time security event auditing.
+              Continuous threat detection, unsupervised Isolation Forest anomaly detection, automated IP isolation, and real-time SOC auditing.
             </p>
           </div>
 
@@ -284,7 +322,7 @@ export default function SecurityDashboard() {
               className="flex items-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-lime to-lime-2 text-navy text-sm font-bold shadow-lg shadow-lime/20 hover:shadow-lime/40 hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 disabled:opacity-50"
             >
               <Zap className={`w-4 h-4 ${analyzing ? "animate-bounce" : ""}`} />
-              {analyzing ? "Analyzing Traffic..." : "Run Security Scan"}
+              {analyzing ? "Training & Scanning..." : "Run ML Security Scan"}
             </button>
           </div>
         </div>
@@ -344,6 +382,95 @@ export default function SecurityDashboard() {
             valueColor="text-red-400"
             badgeColor="bg-red-500/10 border-red-500/20 text-red-400"
           />
+        </div>
+
+        {/* ======================================================
+            PHASE 4: ISOLATION FOREST ML EVALUATION PANEL
+        ====================================================== */}
+        <div className="bg-navy-2/60 border border-lime/20 rounded-3xl p-6 md:p-8 backdrop-blur-md relative overflow-hidden">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 mb-6 pb-6 border-b border-white/10">
+            <div className="flex items-center gap-3">
+              <span className="p-3 rounded-2xl bg-lime/10 text-lime border border-lime/30">
+                <Cpu className="w-6 h-6" />
+              </span>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-xl font-bold text-white">Isolation Forest Machine Learning Model</h2>
+                  <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-mono font-bold">
+                    {modelEvaluation?.model_status || "PASSED"}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Unsupervised Isolation Trees ($N=100$) calculating path lengths $h(x)$ and anomaly scores $S(x, n)$
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4 text-xs font-mono">
+              <div className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-slate-300">
+                Trees: <span className="text-lime font-bold">{modelEvaluation?.num_trees || 100}</span>
+              </div>
+              <div className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-slate-300">
+                Subsample: <span className="text-lime font-bold">{modelEvaluation?.subsample_size || 256}</span>
+              </div>
+              <div className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-slate-300">
+                Avg Depth $h(x)$: <span className="text-lime font-bold">{modelEvaluation?.avg_path_length || "N/A"}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <MLMetricBox
+              title="Contamination Rate"
+              value={`${((modelEvaluation?.contamination_rate || 0) * 100).toFixed(1)}%`}
+              subtitle="Fraction of anomalous traffic"
+              color="text-amber-400"
+            />
+            <MLMetricBox
+              title="Mean ML Anomaly Score"
+              value={`${modelEvaluation?.mean_anomaly_score || 0}/100`}
+              subtitle="Average S(x, n) ensemble score"
+              color="text-blue-400"
+            />
+            <MLMetricBox
+              title="Evaluated Samples"
+              value={modelEvaluation?.total_samples_evaluated || 0}
+              subtitle="Distinct IP feature vectors"
+              color="text-slate-200"
+            />
+            <MLMetricBox
+              title="ML Anomalies Detected"
+              value={modelEvaluation?.anomalies_detected || 0}
+              subtitle="ML Score >= 55 threshold"
+              color="text-rose-400"
+            />
+          </div>
+
+          {/* Feature Importance Progress Bars */}
+          {modelEvaluation?.feature_importance && (
+            <div className="space-y-3 bg-white/[0.02] p-5 rounded-2xl border border-white/5">
+              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-2 flex items-center gap-2">
+                <BarChart2 className="w-4 h-4 text-lime" />
+                Isolation Split Feature Importance
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {Object.entries(modelEvaluation.feature_importance).map(([feature, pct]) => (
+                  <div key={feature} className="space-y-1">
+                    <div className="flex items-center justify-between text-xs font-mono">
+                      <span className="text-slate-400">{feature}</span>
+                      <span className="text-lime font-bold">{pct}%</span>
+                    </div>
+                    <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-lime/40 to-lime rounded-full transition-all duration-500"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Secondary Stats Strip */}
@@ -548,7 +675,7 @@ export default function SecurityDashboard() {
                     <th className="px-6 py-4 font-semibold">Target IP</th>
                     <th className="px-6 py-4 font-semibold">Event Type</th>
                     <th className="px-6 py-4 font-semibold">Severity</th>
-                    <th className="px-6 py-4 font-semibold">Risk Score</th>
+                    <th className="px-6 py-4 font-semibold">Hybrid Anomaly Score</th>
                     <th className="px-6 py-4 font-semibold">Action</th>
                     <th className="px-6 py-4 font-semibold">Status</th>
                     <th className="px-6 py-4 font-semibold">Timestamp</th>
@@ -566,8 +693,8 @@ export default function SecurityDashboard() {
                         </span>
                       </td>
                       <td className="px-6 py-4 font-mono font-bold text-xs">
-                        <span className={evt.risk_score >= 60 ? "text-rose-400" : evt.risk_score >= 30 ? "text-amber-400" : "text-slate-300"}>
-                          {evt.risk_score ?? 0}/100
+                        <span className={evt.anomaly_score >= 50 ? "text-rose-400" : "text-slate-300"}>
+                          {evt.anomaly_score ?? 0}/100
                         </span>
                       </td>
                       <td className="px-6 py-4 font-bold text-xs">
@@ -697,8 +824,8 @@ export default function SecurityDashboard() {
             />
             <PipelineStepCard
               number="03"
-              title="Anomaly Detection"
-              description="Identify suspicious volume spikes and error anomalies"
+              title="Isolation Forest ML"
+              description="Train 100 Isolation Trees to compute ML anomaly score S(x, n)"
             />
             <PipelineStepCard
               number="04"
@@ -742,6 +869,23 @@ function StatCard({ title, value, subtitle, icon, valueColor = "text-white", bad
         <div className={`text-3xl font-black font-mono tracking-tight ${valueColor}`}>{value}</div>
         <p className="text-[11px] text-slate-400 mt-1">{subtitle}</p>
       </div>
+    </div>
+  );
+}
+
+interface MLMetricBoxProps {
+  title: string;
+  value: string | number;
+  subtitle: string;
+  color?: string;
+}
+
+function MLMetricBox({ title, value, subtitle, color = "text-white" }: MLMetricBoxProps) {
+  return (
+    <div className="bg-white/[0.02] border border-white/10 rounded-2xl p-4">
+      <div className="text-xs font-semibold text-slate-400">{title}</div>
+      <div className={`text-2xl font-bold font-mono tracking-tight mt-1 ${color}`}>{value}</div>
+      <p className="text-[10px] text-slate-500 mt-0.5">{subtitle}</p>
     </div>
   );
 }
