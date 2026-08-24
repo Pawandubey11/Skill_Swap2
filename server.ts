@@ -19,6 +19,7 @@ import {
 import {
   isIPBlocked,
   getBlockedIPs,
+  enforceUnblock,
 } from "./src/security/enforcementEngine.js";
 
 // ============================================================
@@ -119,12 +120,9 @@ async function startServer() {
     conn.release();
   } catch (error) {
     console.error(
-      "❌ MySQL Connection Failed",
+      "⚠️ MySQL Connection Warning (Database offline or initializing):",
+      error,
     );
-
-    console.error(error);
-
-    process.exit(1);
   }
 
   // ==========================================================
@@ -307,7 +305,7 @@ async function startServer() {
   // ==========================================================
 
   app.use(
-    (
+    async (
       req: express.Request,
       res: express.Response,
       next: express.NextFunction,
@@ -350,7 +348,7 @@ async function startServer() {
 
       try {
         const blocked =
-          isIPBlocked(ip);
+          await isIPBlocked(ip);
 
         if (blocked) {
           console.log(
@@ -871,7 +869,7 @@ async function startServer() {
         // ======================================================
 
         const blockedIPs =
-          getBlockedIPs();
+          await getBlockedIPs();
 
         // ======================================================
         // DEFAULT SEVERITY DISTRIBUTION
@@ -1018,10 +1016,10 @@ async function startServer() {
 
   app.get(
     "/api/security/blocked-ips",
-    (req, res) => {
+    async (req, res) => {
       try {
         const blockedIPs =
-          getBlockedIPs();
+          await getBlockedIPs();
 
         return res.status(200).json({
           success:
@@ -1045,6 +1043,47 @@ async function startServer() {
 
           error:
             "Failed to fetch blocked IPs",
+        });
+      }
+    },
+  );
+
+  // ==========================================================
+  // UNBLOCK IP
+  // ==========================================================
+
+  app.post(
+    "/api/security/unblock",
+    async (req, res) => {
+      try {
+        const { ip_address } = req.body;
+
+        if (!ip_address || typeof ip_address !== "string") {
+          return res.status(400).json({
+            success: false,
+            error: "IP address is required",
+          });
+        }
+
+        const unblocked = await enforceUnblock(ip_address);
+
+        if (!unblocked) {
+          return res.status(404).json({
+            success: false,
+            message: "IP address was not found in active blocks or already unblocked.",
+          });
+        }
+
+        return res.status(200).json({
+          success: true,
+          message: `IP ${ip_address} has been successfully unblocked.`,
+          ip_address,
+        });
+      } catch (error) {
+        console.error("❌ Failed to unblock IP:", error);
+        return res.status(500).json({
+          success: false,
+          error: "Failed to unblock IP address",
         });
       }
     },

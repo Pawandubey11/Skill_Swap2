@@ -438,12 +438,7 @@ export async function runSecurityAnalysis(): Promise<void> {
     // NORMAL COUNT
     // --------------------------------------------------------
 
-    const normalCount =
-      enforcementResults.filter(
-        (result) =>
-          result.action ===
-          "NORMAL",
-      ).length;
+    const normalCount = monitorCount;
 
     // ========================================================
     // SUMMARY

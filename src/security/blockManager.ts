@@ -123,10 +123,13 @@ export async function blockIP(
 
   if (
     normalizedIP === "unknown" ||
+    normalizedIP === "127.0.0.1" ||
+    normalizedIP === "::1" ||
+    normalizedIP === "localhost" ||
     normalizedIP.length === 0
   ) {
     console.warn(
-      "⚠️ Cannot block unknown IP address",
+      "⚠️ Cannot block loopback or unknown IP address",
     );
 
     return null;
@@ -302,7 +305,12 @@ export async function isBlocked(
   const normalizedIP =
     normalizeIP(ip);
 
-  if (normalizedIP === "unknown") {
+  if (
+    normalizedIP === "unknown" ||
+    normalizedIP === "127.0.0.1" ||
+    normalizedIP === "::1" ||
+    normalizedIP === "localhost"
+  ) {
     return false;
   }
 

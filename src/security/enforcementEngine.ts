@@ -293,9 +293,9 @@ export function enforceBlock(
 // UNBLOCK IP
 // ============================================================
 
-export function enforceUnblock(
+export async function enforceUnblock(
   ip: string,
-): boolean {
+): Promise<boolean> {
 
   const normalizedIP =
     normalizeIP(ip);
@@ -304,7 +304,7 @@ export function enforceUnblock(
     `🔓 UNBLOCK REQUEST: ${normalizedIP}`,
   );
 
-  return unblockIP(
+  return await unblockIP(
     normalizedIP,
   );
 }
@@ -313,14 +313,14 @@ export function enforceUnblock(
 // CHECK BLOCK STATUS
 // ============================================================
 
-export function isIPBlocked(
+export async function isIPBlocked(
   ip: string,
-): boolean {
+): Promise<boolean> {
 
   const normalizedIP =
     normalizeIP(ip);
 
-  return isBlocked(
+  return await isBlocked(
     normalizedIP,
   );
 }
@@ -329,9 +329,9 @@ export function isIPBlocked(
 // GET BLOCKED IPS
 // ============================================================
 
-export function getBlockedIPsList() {
+export async function getBlockedIPsList() {
 
-  return getBlockedIPs();
+  return await getBlockedIPs();
 
 }
 

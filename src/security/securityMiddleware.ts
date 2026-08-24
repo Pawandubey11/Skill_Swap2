@@ -1,7 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
-import { isIPBlocked } from "./blockManager.js";
+import { isIPBlocked } from "./enforcementEngine.js";
 
-export function securityBlockMiddleware(
+export async function securityBlockMiddleware(
   req: Request,
   res: Response,
   next: NextFunction,
@@ -13,7 +13,7 @@ export function securityBlockMiddleware(
 
   const normalizedIP = ip.replace(/^::ffff:/, "");
 
-  if (isIPBlocked(normalizedIP)) {
+  if (await isIPBlocked(normalizedIP)) {
     console.log(
       `🚫 BLOCKED REQUEST: ${normalizedIP} ${req.method} ${req.originalUrl}`,
     );
