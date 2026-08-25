@@ -145,20 +145,13 @@ export async function blockIP(
   // Calculate expiration
   // ----------------------------------------------------------
 
-  const now = Date.now();
-
-  const expiresAt =
+  const durationSec =
     durationMs !== null
-      ? now + Math.max(0, durationMs)
-      : null;
-
-  const expiresAtDate =
-    expiresAt !== null
-      ? new Date(expiresAt)
-      : null;
+      ? Math.max(60, Math.round(durationMs / 1000))
+      : 3600;
 
   // ----------------------------------------------------------
-  // Insert / update block
+  // Insert / update block using MySQL NOW() date arithmetic
   // ----------------------------------------------------------
 
   try {
@@ -172,22 +165,26 @@ export async function blockIP(
           expires_at,
           status
         )
-        VALUES (?, ?, ?, NOW(), ?, 'BLOCKED')
+        VALUES (?, ?, ?, NOW(), DATE_ADD(NOW(), INTERVAL ? SECOND), 'BLOCKED')
 
         ON DUPLICATE KEY UPDATE
           reason = VALUES(reason),
           risk_score = VALUES(risk_score),
           blocked_at = NOW(),
-          expires_at = VALUES(expires_at),
+          expires_at = DATE_ADD(NOW(), INTERVAL ? SECOND),
           status = 'BLOCKED'
       `,
       [
         normalizedIP,
         reason,
         Math.max(0, Number(riskScore) || 0),
-        expiresAtDate,
+        durationSec,
+        durationSec,
       ],
     );
+
+    const now = Date.now();
+    const expiresAt = now + durationSec * 1000;
 
     const block: BlockedIP = {
       ip: normalizedIP,
@@ -212,21 +209,15 @@ export async function blockIP(
       `📊 Risk Score: ${riskScore}`,
     );
 
-    if (expiresAt !== null) {
-      console.log(
-        `⏱️ Duration: ${durationMs} ms`,
-      );
+    console.log(
+      `⏱️ Duration: ${durationSec} s`,
+    );
 
-      console.log(
-        `⏰ Expires: ${new Date(
-          expiresAt,
-        ).toISOString()}`,
-      );
-    } else {
-      console.log(
-        "⛔ Permanent block",
-      );
-    }
+    console.log(
+      `⏰ Expires: ${new Date(
+        expiresAt,
+      ).toISOString()}`,
+    );
 
     console.log(
       "============================================================",
