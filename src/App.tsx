@@ -381,7 +381,21 @@ export default function App() {
           =================================================== */}
 
           <Route
+            path="/dashboard"
+            element={
+              <SecurityDashboard />
+            }
+          />
+
+          <Route
             path="/security"
+            element={
+              <SecurityDashboard />
+            }
+          />
+
+          <Route
+            path="/security-dashboard"
             element={
               <SecurityDashboard />
             }

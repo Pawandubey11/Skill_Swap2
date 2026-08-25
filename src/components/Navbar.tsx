@@ -22,7 +22,8 @@ const Navbar = ({ onPostClick, token, user, onLogin, onLogout, onDashboard }: an
         {[
           { name: 'Skills', path: '/' },
           { name: 'How It Works', path: '/how-it-works' },
-          { name: 'Categories', path: '/categories' }
+          { name: 'Categories', path: '/categories' },
+          { name: 'Security Dashboard', path: '/dashboard' }
         ].map((link) => (
           <Link
             key={link.name}
