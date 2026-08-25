@@ -1093,7 +1093,7 @@ async function startServer() {
   );
 
   app.get(
-    "/api/security/model-evaluation",
+    ["/api/security/model-evaluation", "/api/security/evaluation", "/api/security-evaluation"],
     async (req, res) => {
       try {
         const features = await extractFeatures();
