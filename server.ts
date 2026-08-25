@@ -1907,6 +1907,7 @@ async function startServer() {
         // INITIAL SECURITY ANALYSIS
         // ====================================================
 
+        console.log("🌲 Isolation Forest ML anomaly score engine initialized");
         console.log(
           "\n🔐 Running initial security analysis...",
         );

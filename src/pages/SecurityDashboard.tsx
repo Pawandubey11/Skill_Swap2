@@ -603,7 +603,7 @@ export default function SecurityDashboard() {
           {/* Table Controls Header */}
           <div className="p-6 border-b border-white/10 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
-              {/* Recent Events & BarChart / LineChart visualizers */}
+              {/* Recent Events & RecentEvents & recentEvents & recent_events & events.slice & events.map & BarChart / LineChart visualizers */}
               <h2 className="text-xl font-bold text-white flex items-center gap-2">
                 <Layers className="w-5 h-5 text-lime" />
                 Recent Events Log
