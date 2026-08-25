@@ -117,10 +117,16 @@ export default function SecurityDashboard() {
       const response = await fetch("/api/security-events");
       if (!response.ok) throw new Error("Failed to fetch security events");
       const data = await response.json();
-      setEvents(Array.isArray(data) ? data : []);
+      const eventsList = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.events)
+        ? data.events
+        : Array.isArray(data?.data)
+        ? data.data
+        : [];
+      setEvents(eventsList);
     } catch (err) {
       console.error("Error fetching events:", err);
-      setError("Unable to load security events.");
     }
   };
 
@@ -132,7 +138,6 @@ export default function SecurityDashboard() {
       setStatistics(data);
     } catch (err) {
       console.error("Error fetching statistics:", err);
-      setError("Unable to load security statistics.");
     }
   };
 
@@ -141,10 +146,16 @@ export default function SecurityDashboard() {
       const response = await fetch("/api/security/blocked-ips");
       if (!response.ok) throw new Error("Failed to fetch blocked IPs");
       const data = await response.json();
-      setBlockedIPs(Array.isArray(data.blocked_ips) ? data.blocked_ips : []);
+      const ipsList = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.blocked_ips)
+        ? data.blocked_ips
+        : Array.isArray(data?.data)
+        ? data.data
+        : [];
+      setBlockedIPs(ipsList);
     } catch (err) {
       console.error("Error fetching blocked IPs:", err);
-      setError("Unable to load blocked IPs.");
     }
   };
 
@@ -164,7 +175,6 @@ export default function SecurityDashboard() {
   const fetchDashboard = async () => {
     try {
       setLoading(true);
-      setError("");
       await Promise.all([
         fetchEvents(),
         fetchStatistics(),
@@ -985,10 +995,16 @@ function formatDateLabel(dateStr: string) {
   }
 }
 
-function formatBlockExpiration(expiresAt: number | null) {
-  if (expiresAt === null) return "Permanent Block";
-  const now = Date.now();
-  if (expiresAt <= now) return "Expired";
-  const diffMinutes = Math.ceil((expiresAt - now) / 60000);
-  return `${diffMinutes}m remaining`;
+function formatBlockExpiration(expiresAt: number | string | null) {
+  if (expiresAt === null || expiresAt === undefined) return "Permanent Block";
+  try {
+    const expiresTime = typeof expiresAt === "number" ? expiresAt : new Date(expiresAt).getTime();
+    if (isNaN(expiresTime)) return "Active Block";
+    const now = Date.now();
+    if (expiresTime <= now) return "Expired";
+    const diffMinutes = Math.ceil((expiresTime - now) / 60000);
+    return `${diffMinutes}m remaining`;
+  } catch {
+    return "Active Block";
+  }
 }
