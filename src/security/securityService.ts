@@ -280,7 +280,7 @@ export async function runSecurityAnalysis(): Promise<void> {
         // ====================================================
 
         const enforcement =
-          enforceSecurityResponse(
+          await enforceSecurityResponse(
             {
               ...response,
               ip_address: ip,
