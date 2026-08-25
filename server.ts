@@ -10,6 +10,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import pool from "./src/lib/db.js";
+import { ensureSecurityTables } from "./src/lib/dbInit.js";
 import trafficLogger from "./src/middleware/trafficLogger.js";
 
 import {
@@ -121,6 +122,7 @@ async function startServer() {
     );
 
     conn.release();
+    await ensureSecurityTables();
   } catch (error) {
     console.error(
       "⚠️ MySQL Connection Warning (Database offline or initializing):",
